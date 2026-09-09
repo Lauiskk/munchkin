@@ -7,6 +7,8 @@ run:
   timeout: 5m
   tests: true
 
+# misspell fica de fora: só tem dicionário de inglês, e a documentação deste
+# projeto é em português — ele acusaria "problemas" como erro de "problems".
 linters:
   default: standard   # errcheck, govet, ineffassign, staticcheck, unused
   enable:
@@ -14,7 +16,6 @@ linters:
     - errorlint       # comparação de erro por errors.Is/As, não por ==
     - gocritic
     - gosec           # varredura de segurança
-    - misspell
     - nilerr          # return nil quando err != nil
     - noctx           # requisição HTTP sem context
     - revive
@@ -24,7 +25,10 @@ linters:
   settings:
     errcheck:
       check-type-assertions: true
-      check-blank: true
+      # check-blank fica desligado: ele reprova `v, _ := x.(T)` e `_ = f()`,
+      # que são a forma idiomática de dizer "considerei e ignoro". O que
+      # importa — chamada com erro totalmente ignorado — o padrão já pega.
+      check-blank: false
     gosec:
       excludes:
         - G115         # conversão int → int; tratamos overflow explicitamente no money
@@ -37,7 +41,9 @@ linters:
       - common-false-positives
     rules:
       - path: _test\.go$
-        linters: [gosec, errcheck]
+        # bodyclose não enxerga fechamento via t.Cleanup, e httptest.NewRequest
+        # sem context é o idioma normal de teste.
+        linters: [gosec, errcheck, bodyclose, noctx]
 
 formatters:
   enable:
