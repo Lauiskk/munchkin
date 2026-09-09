@@ -1,0 +1,28 @@
+# Binários e artefatos de build
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Ambiente — nunca versionar segredos reais
+.env
+.env.*
+!.env.example
+
+# Cobertura e perfis
+coverage.*
+*.prof
+
+# Ferramentas e editores
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Saídas de teste de carga
+/tests/load/results/
+
+# Swagger gerado (regenerável com `make swagger`)
+/docs/swagger/swagger.json
+/docs/swagger/swagger.yaml
