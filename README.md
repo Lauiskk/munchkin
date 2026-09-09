@@ -17,7 +17,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 |---|---|---|
 | 00 | Fundação: módulo, gates dos critérios eliminatórios, CI | ✅ |
 | 01 | Composição com Fx, Fiber, erros padronizados, `/health/live` | ✅ |
-| 02 | Keycloak, cache de JWKS, middleware de autenticação | ⬜ |
+| 02 | Keycloak, cache de JWKS, middleware de autenticação | ✅ |
 | 03 | Postgres, ciclo de vida, `/health/ready` | ⬜ |
 | 04 | Migrations versionadas e schema com as constraints | ⬜ |
 | 05 | `Money` | ⬜ |
@@ -92,6 +92,39 @@ Erros seguem sempre o mesmo formato:
   "correlationId": "01a083fe-4e9b-7890-a53b-c2ba55da3806"
 }
 ```
+
+## Autenticação
+
+Toda rota de negócio exige um access token do IdP. Só `/health/live` e
+`/health/ready` são públicas.
+
+O ambiente local sobe um Keycloak já provisionado, com o realm importado a cada
+subida — os segredos abaixo valem apenas neste compose e não têm valor fora dele.
+
+| Cliente | `provider_id` | Escopos | Para quê |
+|---|---|---|---|
+| `provider-a` | `provider-a` | `wagering:write`, `wagering:read` | provedor de jogos |
+| `provider-b` | `provider-b` | `wagering:write`, `wagering:read` | provar isolamento entre provedores |
+| `wallet-admin` | — | `wallets:admin` | abertura interna de carteira |
+| `provider-c-sem-escopo` | `provider-c` | nenhum | provar que autenticado não é autorizado |
+
+Obtendo um token e chamando a API:
+
+```sh
+TOKEN=$(curl -s -X POST \
+  http://localhost:8180/realms/munchkin/protocol/openid-connect/token \
+  -d grant_type=client_credentials \
+  -d client_id=provider-a \
+  -d client_secret=local-only-provider-a | jq -r .access_token)
+
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/wallets
+```
+
+O `providerId` de qualquer operação vem **do token**, nunca do corpo: uma
+requisição cujo corpo discorde do token é recusada.
+
+Uma rota inexistente responde 401 a quem não se identificou e 404 a quem se
+identificou — 404 para anônimo contaria quais caminhos existem.
 
 ## Migrations
 

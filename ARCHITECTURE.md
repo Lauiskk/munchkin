@@ -372,8 +372,25 @@ RS256 é conferida em toda requisição, localmente, junto com emissor, audiênc
 expiração e algoritmo. Rejeitar `alg` inesperado é explícito, para fechar a
 confusão de algoritmo.
 
+**Emissor fixo.** O Keycloak monta o `iss` do token a partir do endereço por
+onde foi alcançado, então o mesmo realm emitiria `iss` diferente conforme o
+cliente usasse `127.0.0.1`, `localhost` ou o nome do serviço na rede do
+compose — e a validação de emissor passaria a falhar dependendo de quem pediu o
+token. O emissor é fixado por configuração no IdP, e a aplicação separa duas
+coisas que costumam ser confundidas: o **emissor que ela valida** e a **URL de
+onde ela busca** o documento de descoberta. Dentro da rede do compose a segunda
+é interna; a primeira continua sendo o endereço público.
+
+A descoberta confere o emissor publicado contra o configurado e recusa a subida
+quando divergem. Sem essa checagem, uma URL trocada por engano — outro realm,
+outro ambiente — faria o serviço validar felizmente tokens de um IdP que não é
+o dele.
+
 Os caminhos públicos são comparados por **igualdade exata**, nunca por prefixo:
-prefixo faz `/health/live/../../wallets` virar rota pública.
+prefixo faz uma rota protegida sob `/health/live/` herdar a dispensa de
+credencial. A comparação exata está coberta por teste, e o teste foi verificado
+trocando a igualdade por prefixo — nessa forma ele fica vermelho e a resposta
+vaza o conteúdo protegido.
 
 **Descartado — introspecção remota do token a cada requisição:** estaria sempre
 atualizado e permitiria revogação imediata, mas poria o IdP no caminho crítico
@@ -401,6 +418,18 @@ qualquer decisão vem do token; se o corpo da requisição discordar, a requisi�
 Consultas são filtradas por provedor, inclusive em replay: um provedor não
 descobre a existência de transação de outro. Operação de carteira é restrita ao
 serviço interno.
+
+**Autenticação antes de roteamento.** Uma rota inexistente responde 401 a quem
+não se identificou, e 404 a quem se identificou. É deliberado: 404 contaria a um
+chamador anônimo quais caminhos existem, e o mapa de uma API financeira não é
+informação pública. O custo é uma resposta menos "correta" em HTTP; o ganho é
+não entregar reconhecimento de superfície de graça.
+
+**Autenticado não é autorizado.** A verificação de escopo é um passo separado da
+verificação de credencial, e devolve 403, não 401. Misturar as duas é como se
+acaba concedendo a um cliente válido uma operação que ele não deveria alcançar.
+O realm traz um cliente sem escopo algum, cuja única função é provar essa
+distinção em teste.
 
 `OPENING` é reservado à abertura interna e é recusado quando chega por HTTP ou
 por SQS.
