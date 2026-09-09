@@ -96,6 +96,7 @@ var Module = fx.Module("postgres",
 		func(r *TransactionRepository) appwagering.TransactionRepository { return r },
 		func(r *LedgerRepository) appwagering.LedgerRepository { return r },
 		func(r *OutboxRepository) appwagering.OutboxRepository { return r },
+		func(r *TransactionRepository) appwagering.PendingRepository { return r },
 	),
 	fx.Invoke(register),
 )

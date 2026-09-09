@@ -353,3 +353,82 @@ func (r *TransactionRepository) Settle(ctx context.Context, t *wagering.Transact
 	}
 	return nil
 }
+
+// pendingRow é a linha lida na varredura de pendências.
+//
+// Existe separada do tipo da porta porque o ORM precisa das tags de coluna e a
+// porta não deve conhecê-las. Carrega a carteira junto porque o worker precisa
+// travá-la ANTES da transação, e descobrir isso exigiria uma consulta a mais
+// dentro do bloco já travado.
+type pendingRow struct {
+	TransactionID uuid.UUID `gorm:"column:id"`
+	WalletID      uuid.UUID `gorm:"column:wallet_id"`
+}
+
+// FindDuePendingReferences lista pendências vencidas, SEM travar nada.
+//
+// A ausência de lock aqui é deliberada e é o que evita deadlock. O fluxo
+// principal adquire os locks nesta ordem: primeiro a linha da carteira, depois
+// a da transação. Um worker que travasse a transação primeiro e a carteira
+// depois inverteria a ordem — e bastaria um provedor reenviar por HTTP a mesma
+// reversão pendente enquanto o worker a resolve para os dois se bloquearem
+// mutuamente.
+//
+// Então o worker só DESCOBRE candidatas aqui, e adquire os locks na mesma ordem
+// do fluxo principal dentro da transação.
+func (r *TransactionRepository) FindDuePendingReferences(
+	ctx context.Context, agora time.Time, limite int,
+) ([]appwagering.PendingReference, error) {
+	var linhas []pendingRow
+	err := r.db.Session(ctx).Raw(`
+		SELECT id, wallet_id
+		  FROM wager_transactions
+		 WHERE status = 'PENDING_REFERENCE'
+		   AND next_attempt_at <= ?
+		 ORDER BY next_attempt_at
+		 LIMIT ?`, agora, limite).Scan(&linhas).Error
+	if err != nil {
+		return nil, classify(err)
+	}
+
+	pendentes := make([]appwagering.PendingReference, 0, len(linhas))
+	for _, l := range linhas {
+		pendentes = append(pendentes, appwagering.PendingReference{
+			TransactionID: l.TransactionID,
+			WalletID:      l.WalletID,
+		})
+	}
+	return pendentes, nil
+}
+
+// LockPendingReference trava a linha e a devolve, se ainda estiver pendente.
+//
+// Usa SKIP LOCKED: se outra instância já pegou esta pendência, esta desiste em
+// vez de esperar. É o que permite vários workers dividirem a fila sem eleição
+// de líder e sem nenhum deles bloquear os outros.
+//
+// A releitura da condição dentro do lock importa: entre a descoberta e o lock,
+// outra instância pode ter resolvido a pendência. Sem reconferir, esta a
+// resolveria de novo.
+func (r *TransactionRepository) LockPendingReference(
+	ctx context.Context, id uuid.UUID, agora time.Time,
+) (*wagering.Transaction, error) {
+	if !InTransaction(ctx) {
+		return nil, fmt.Errorf("%w: LockPendingReference", ErrNoTransaction)
+	}
+
+	var row transactionRow
+	err := r.db.Session(ctx).Raw(`
+		SELECT * FROM wager_transactions
+		 WHERE id = ?
+		   AND status = 'PENDING_REFERENCE'
+		   AND next_attempt_at <= ?
+		   FOR UPDATE SKIP LOCKED`, id, agora).Scan(&row).Error
+	if err != nil {
+		return nil, classify(err)
+	}
+	if row.ID == uuid.Nil {
+		return nil, fmt.Errorf("%w: pendência %s", app.ErrNotFound, id)
+	}
+	return row.toDomain()
+}

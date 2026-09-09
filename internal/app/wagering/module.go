@@ -7,5 +7,6 @@ var Module = fx.Module("app.wagering",
 	fx.Provide(
 		NewProcessor,
 		NewQuerier,
+		NewResolver,
 	),
 )
