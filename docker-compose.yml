@@ -52,6 +52,38 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  postgres:
+    image: postgres:18.6-alpine
+    container_name: munchkin_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_OWNER_USER:-munchkin_owner}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:-local-only-owner}
+      POSTGRES_DB: ${DB_NAME:-munchkin}
+      MUNCHKIN_APP_PASSWORD: ${DB_PASSWORD:-local-only-app}
+    volumes:
+      # O PostgreSQL 18 mudou a convenção: o volume monta em /var/lib/postgresql
+      # e os dados ficam num subdiretório por versão maior, o que permite
+      # pg_upgrade sem esbarrar na fronteira do ponto de montagem. Montar em
+      # .../data, como se fazia até a 17, faz a imagem recusar a subida.
+      - postgres_data:/var/lib/postgresql
+      - ./deploy/postgres/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    ports:
+      # Publicado no loopback e fora da faixa usual: é comum já haver outro
+      # Postgres na 5432 da máquina de quem for rodar.
+      - "127.0.0.1:${DB_HOST_PORT:-5440}:5432"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_OWNER_USER:-munchkin_owner} -d ${DB_NAME:-munchkin}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   api:
     build:
       context: .
@@ -71,6 +103,12 @@ services:
       AUTH_ISSUER: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/munchkin
       AUTH_DISCOVERY_URL: http://keycloak:8080/realms/munchkin/.well-known/openid-configuration
       AUTH_AUDIENCE: ${AUTH_AUDIENCE:-munchkin-api}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-munchkin}
+      DB_USER: ${DB_USER:-munchkin_app}
+      DB_PASSWORD: ${DB_PASSWORD:-local-only-app}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
     ports:
       # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
       # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas
@@ -78,6 +116,8 @@ services:
       - "127.0.0.1:${API_HOST_PORT:-8080}:8080"
     depends_on:
       keycloak:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     # A aplicação não escreve em disco: tudo que ela produz sai no stdout.
     # Sistema de arquivos somente leitura e sem capacidade nenhuma reduzem o
@@ -92,3 +132,6 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  postgres_data:
