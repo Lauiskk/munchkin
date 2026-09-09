@@ -1,24 +1,16 @@
 package dto
 
 import (
+	"github.com/Lauiskk/munchkin/internal/adapter/contract"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
 	"github.com/Lauiskk/munchkin/internal/domain/wallet"
 	"github.com/Lauiskk/munchkin/pkg/apperr"
 )
 
-// MoneyPayload é a forma de fio de um valor monetário.
-//
-// O valor é string, nunca número: número JSON vira ponto flutuante na maioria
-// dos leitores, e o valor perderia precisão antes de o código Go vê-lo.
-type MoneyPayload struct {
-	Amount   string `json:"amount"`
-	Currency string `json:"currency"`
-}
-
 // OpenWalletRequest é o corpo da abertura de carteira.
 type OpenWalletRequest struct {
-	PlayerID       string       `json:"playerId"`
-	InitialBalance MoneyPayload `json:"initialBalance"`
+	PlayerID       string                `json:"playerId"`
+	InitialBalance contract.MoneyPayload `json:"initialBalance"`
 }
 
 // Decode valida e converte para os tipos de domínio.
@@ -27,7 +19,7 @@ type OpenWalletRequest struct {
 // servidor. Aceitá-lo do corpo permitiria colisão deliberada e sondagem de
 // identificadores existentes.
 func (r OpenWalletRequest) Decode() (wallet.PlayerID, money.Money, error) {
-	var campos Fields
+	var campos contract.Fields
 
 	playerID, err := wallet.ParsePlayerID(r.PlayerID)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/auth"
+	"github.com/Lauiskk/munchkin/internal/adapter/contract"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/dto"
 	"github.com/Lauiskk/munchkin/internal/app"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
@@ -41,7 +42,7 @@ func (h *Wagering) Submit(c *fiber.Ctx) error {
 		})
 	}
 
-	var req dto.SubmitTransactionRequest
+	var req contract.SubmitTransactionRequest
 	if err := dto.Bind(c, &req); err != nil {
 		return err
 	}
