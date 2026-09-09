@@ -1,0 +1,19 @@
+# Fim de linha normalizado no repositório e LF no disco.
+#
+# Sem isto, um clone no Windows com core.autocrlf converte os scripts para CRLF
+# e o container falha com "bad interpreter: no such file or directory" — erro
+# que não diz nada sobre a causa real. Como o enunciado pede reprodução a partir
+# de um checkout limpo, isso não pode depender da configuração de quem clona.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.go   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+Makefile   text eol=lf
+
+# Marca o SQL para que o GitHub o classifique corretamente na estatística de
+# linguagens, em vez de contá-lo como parte do Go.
+*.sql linguist-language=SQL

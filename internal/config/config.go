@@ -9,6 +9,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -91,6 +93,23 @@ func (d DB) DSN() string {
 	)
 }
 
+// URL monta a string de conexão no formato URL, esperado pelo executor de
+// migrations. A senha é escapada: uma senha com "@" ou "/" quebraria a URL de
+// forma silenciosa, e o erro apareceria como host inexistente.
+func (d DB) URL() string {
+	u := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(d.User, d.Password.Reveal()),
+		Host:   net.JoinHostPort(d.Host, strconv.Itoa(d.Port)),
+		Path:   "/" + d.Name,
+	}
+	q := url.Values{}
+	q.Set("sslmode", d.SSLMode)
+	q.Set("connect_timeout", strconv.Itoa(int(d.ConnectTimeout.Seconds())))
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // Auth reúne os parâmetros de validação de token.
 type Auth struct {
 	// Issuer é o valor esperado na claim `iss`.
@@ -161,19 +180,7 @@ func Load() (Config, error) {
 			JWKSMinRefreshInterval: v.duration("AUTH_JWKS_MIN_REFRESH_INTERVAL", time.Minute),
 			HTTPTimeout:            v.duration("AUTH_HTTP_TIMEOUT", 5*time.Second),
 		},
-		DB: DB{
-			Host:            v.required("DB_HOST"),
-			Port:            v.port("DB_PORT", 5432),
-			Name:            v.required("DB_NAME"),
-			User:            v.required("DB_USER"),
-			Password:        Secret(v.required("DB_PASSWORD")),
-			SSLMode:         v.enum("DB_SSLMODE", "disable", "disable", "require", "verify-ca", "verify-full"),
-			MaxOpenConns:    v.positiveInt("DB_MAX_OPEN_CONNS", 10),
-			MaxIdleConns:    v.positiveInt("DB_MAX_IDLE_CONNS", 5),
-			ConnMaxLifetime: v.duration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
-			ConnMaxIdleTime: v.duration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
-			ConnectTimeout:  v.duration("DB_CONNECT_TIMEOUT", 5*time.Second),
-		},
+		DB: loadDB(&v),
 	}
 
 	// O prazo de uma requisição precisa caber na janela de escrita, senão o
@@ -196,6 +203,40 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// LoadDB carrega e valida apenas a configuração de banco.
+//
+// Existe para o executor de migrations, que precisa do banco e de nada mais.
+// Fazê-lo passar por Load obrigaria o serviço de migração a receber emissor e
+// audiência do IdP — credenciais que ele não usa e não deveria carregar. Menos
+// configuração exigida é menos segredo distribuído.
+func LoadDB() (DB, error) {
+	_ = godotenv.Load()
+
+	var v validator
+	db := loadDB(&v)
+	if err := v.err(); err != nil {
+		return DB{}, err
+	}
+	return db, nil
+}
+
+// loadDB monta a configuração de banco acumulando problemas no validador.
+func loadDB(v *validator) DB {
+	return DB{
+		Host:            v.required("DB_HOST"),
+		Port:            v.port("DB_PORT", 5432),
+		Name:            v.required("DB_NAME"),
+		User:            v.required("DB_USER"),
+		Password:        Secret(v.required("DB_PASSWORD")),
+		SSLMode:         v.enum("DB_SSLMODE", "disable", "disable", "require", "verify-ca", "verify-full"),
+		MaxOpenConns:    v.positiveInt("DB_MAX_OPEN_CONNS", 10),
+		MaxIdleConns:    v.positiveInt("DB_MAX_IDLE_CONNS", 5),
+		ConnMaxLifetime: v.duration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
+		ConnMaxIdleTime: v.duration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
+		ConnectTimeout:  v.duration("DB_CONNECT_TIMEOUT", 5*time.Second),
+	}
 }
 
 // validator acumula problemas de configuração para reportar todos de uma vez.

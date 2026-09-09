@@ -16,6 +16,7 @@ import (
 
 	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
+	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/logs"
 )
@@ -31,8 +32,13 @@ const (
 func main() {
 	// Subcomando de sonda, usado pelo HEALTHCHECK da imagem. Fica antes de
 	// tudo porque não deve carregar configuração nem montar o grafo.
-	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
-		os.Exit(runHealthCheck())
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "healthcheck":
+			os.Exit(runHealthCheck())
+		case "migrate":
+			os.Exit(runMigrate(os.Args[2:]))
+		}
 	}
 
 	// A configuração é carregada fora do grafo para que um ambiente inválido
@@ -57,6 +63,7 @@ func main() {
 			return &fxevent.SlogLogger{Logger: log}
 		}),
 
+		postgres.Module,
 		auth.Module,
 		server.Module,
 	)
