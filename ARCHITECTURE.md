@@ -828,6 +828,10 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
   difere da biblioteca padrão. Um gate proíbe o uso do contexto errado nos
   handlers, mas a diferença existe e é relevante para instrumentação futura.
 - **Reversão parcial não é suportada**, conforme o escopo definido.
+- **A entrada por SQS não é autenticada por token.** O `providerId` vem do corpo,
+  e a fronteira de confiança é a política de acesso da fila. Detalhado no §9;
+  fica listado aqui porque é limitação do desenho, e não detalhe de
+  implementação.
 - **O dono do schema no ambiente local é superusuário**, porque é o usuário de
   bootstrap da imagem do PostgreSQL. Em produção o dono seria um papel comum, e
   o superusuário não seria usado por nenhum componente da aplicação. A
@@ -848,3 +852,9 @@ Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado 
   como sintoma — se um dia subir, alguma escrita escapou do caminho travado.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.
+- **A suíte de integração ainda exige o Keycloak no ar.** PostgreSQL e LocalStack
+  sobem e descem sozinhos via `testcontainers`; o IdP é a última dependência
+  manual, e ela some na etapa 15.
+- **`tests/recovery/` está vazia.** Os cenários são da etapa 16. O alvo
+  `make test-recovery` termina bem informando isso, em vez de falhar — um
+  comando documentado que falha ensina que vermelho ali é normal.

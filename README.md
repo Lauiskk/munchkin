@@ -172,12 +172,21 @@ make test-recovery      # interrupção entre commit e remoção, publishers con
 ```
 
 Os três últimos rodam sob a build tag `integration`, então `go test ./...` não
-os inclui. Hoje `make test-integration` exige o Keycloak no ar
-(`docker compose up -d keycloak`); a partir da etapa 15 a infraestrutura sobe e
-desce sozinha via `testcontainers`.
+os inclui.
 
-`make test-concurrency` e `make test-recovery` ainda não têm cenários — as
-suítes chegam nas etapas 15 e 16.
+PostgreSQL e LocalStack sobem e descem sozinhos, via `testcontainers`. O
+**Keycloak ainda não**: `make test-integration` exige que ele esteja no ar
+(`docker compose up -d keycloak`), e essa é a última dependência manual — ela
+some na etapa 15.
+
+`make test-concurrency` tem oito cenários: disputa 80+80 sobre 100, cinquenta
+envios paralelos da mesma aposta, carteiras distintas em paralelo, saldo contra
+ledger, dois publicadores sobre a mesma outbox, dois resolvedores sobre a mesma
+pendência, a mesma operação por HTTP e por fila, e reconciliação sob
+movimentação.
+
+`make test-recovery` ainda não tem cenários — eles chegam na etapa 16, e até lá
+o alvo termina bem informando isso.
 
 ## Gates
 
