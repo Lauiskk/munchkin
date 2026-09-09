@@ -82,6 +82,11 @@ test-concurrency:
 test-recovery:
 	$(GO) test -race -tags=integration -count=1 -timeout=20m ./tests/recovery/...
 
+## fuzz: fuzzing do parser monetário (padrão: 60s; use FUZZTIME para mudar)
+fuzz:
+	@$(GO) test -run FuzzParseIdaEVolta -fuzz FuzzParseIdaEVolta \
+	  -fuzztime=$${FUZZTIME:-60s} ./internal/domain/money/
+
 ## lint: golangci-lint
 lint:
 	@if [ "$$($(GO) list $(PKG) 2>/dev/null | wc -l)" -eq 0 ]; then \
@@ -122,9 +127,15 @@ gate-deps:
 	exit $$status
 
 ## gate-no-float: nenhum ponto flutuante onde circula dinheiro (§5.1, eliminatório)
+# O comentário de linha é removido antes da segunda passada: o próprio código que
+# documenta a proibição menciona os termos proibidos, e um gate que reprova a
+# documentação da regra vira um gate que alguém desliga. Comentário de bloco
+# ainda produziria falso positivo — que é falha para o lado seguro.
 gate-no-float:
 	@hits=$$(grep -rnE '\bfloat(32|64)\b|ParseFloat|FormatFloat' \
-	  $(MONEY_PATHS) --include='*.go' 2>/dev/null || true); \
+	  $(MONEY_PATHS) --include='*.go' 2>/dev/null \
+	  | sed 's|//.*||' \
+	  | grep -E '\bfloat(32|64)\b|ParseFloat|FormatFloat' || true); \
 	if [ -n "$$hits" ]; then \
 	  echo "✗ ponto flutuante em caminho de dinheiro (§5.1 é eliminatório):"; \
 	  echo "$$hits"; exit 1; fi; \
@@ -160,6 +171,6 @@ gate-fiber-ctx:
 	  echo "$$hits"; exit 1; fi; \
 	echo "✓ propagação de contexto"
 
-.PHONY: help up down logs ps migrate-up migrate-down migrate-down-all migrate-status build tidy test test-race test-integration test-concurrency \
+.PHONY: help fuzz up down logs ps migrate-up migrate-down migrate-down-all migrate-status build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
         gate-domain-pure gate-fiber-ctx gate-deps
