@@ -32,6 +32,22 @@ logs:
 ps:
 	@docker compose ps
 
+## migrate-up: aplica as migrations pendentes
+migrate-up:
+	@docker compose run --rm migrate migrate up
+
+## migrate-down: reverte uma migration
+migrate-down:
+	@docker compose run --rm migrate migrate down
+
+## migrate-down-all: reverte todas as migrations (destrutivo)
+migrate-down-all:
+	@docker compose run --rm -e MIGRATE_CONFIRM_DESTRUCTIVE=yes migrate migrate down-all
+
+## migrate-status: versão corrente do schema
+migrate-status:
+	@docker compose run --rm migrate migrate status
+
 ## build: compila os binários
 build:
 	@if [ "$$($(GO) list ./cmd/... 2>/dev/null | wc -l)" -eq 0 ]; then \
@@ -144,6 +160,6 @@ gate-fiber-ctx:
 	  echo "$$hits"; exit 1; fi; \
 	echo "✓ propagação de contexto"
 
-.PHONY: help up down logs ps build tidy test test-race test-integration test-concurrency \
+.PHONY: help up down logs ps migrate-up migrate-down migrate-down-all migrate-status build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
         gate-domain-pure gate-fiber-ctx gate-deps

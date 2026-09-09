@@ -84,6 +84,38 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  migrate:
+    # Mesma imagem da aplicação: as migrations são embarcadas no binário, então
+    # não há como aplicar uma versão de schema que não corresponda ao código
+    # que vai usá-la.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: munchkin_migrate
+    command: ["migrate", "up"]
+    restart: "no"
+    environment:
+      LOG_FORMAT: json
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-munchkin}
+      # Credenciais do DONO do schema. Só este serviço as recebe — a aplicação
+      # roda com um papel que não pode criar nem alterar estrutura, e é isso
+      # que torna o REVOKE sobre o ledger efetivo.
+      DB_USER: ${DB_OWNER_USER:-munchkin_owner}
+      DB_PASSWORD: ${DB_OWNER_PASSWORD:-local-only-owner}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=16M
+
   api:
     build:
       context: .
@@ -119,6 +151,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      # A aplicação só sobe depois de o schema estar na versão certa. Sem isto,
+      # a primeira requisição encontraria tabela inexistente e o erro
+      # apareceria como defeito da aplicação.
+      migrate:
+        condition: service_completed_successfully
     # A aplicação não escreve em disco: tudo que ela produz sai no stdout.
     # Sistema de arquivos somente leitura e sem capacidade nenhuma reduzem o
     # que um comprometimento consegue fazer a partir daqui.
