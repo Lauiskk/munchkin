@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
+	appoutbox "github.com/Lauiskk/munchkin/internal/app/outbox"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/config"
@@ -97,6 +98,7 @@ var Module = fx.Module("postgres",
 		func(r *LedgerRepository) appwagering.LedgerRepository { return r },
 		func(r *OutboxRepository) appwagering.OutboxRepository { return r },
 		func(r *TransactionRepository) appwagering.PendingRepository { return r },
+		func(r *OutboxRepository) appoutbox.Repository { return r },
 	),
 	fx.Invoke(register),
 )
