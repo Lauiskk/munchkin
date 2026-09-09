@@ -25,7 +25,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 05 | `Money` | ✅ |
 | 06 | Agregados de domínio | ✅ |
 | 07 | Abertura de carteira | ✅ |
-| 08 | Operação financeira e idempotência | ⬜ |
+| 08 | Operação financeira e idempotência | ✅ |
 | 09 | Reversões e referências pendentes | ⬜ |
 | 10 | Outbox e publicação | ⬜ |
 | 11 | Consumidor SQS e inbox | ⬜ |
@@ -242,6 +242,53 @@ Erros trazem o campo apontado, e todos de uma vez:
 | Sem o escopo `wallets:admin` | 403 |
 | Carteira inexistente | 404 |
 | Jogador já tem carteira nessa moeda | 409 |
+
+## Operação financeira
+
+```sh
+PA=$(curl -s -X POST \
+  http://localhost:8180/realms/munchkin/protocol/openid-connect/token \
+  -d grant_type=client_credentials -d client_id=provider-a \
+  -d client_secret=local-only-provider-a | jq -r .access_token)
+
+curl -s -X POST localhost:8080/wagering/transactions \
+  -H "Authorization: Bearer $PA" \
+  -H "Idempotency-Key: provider-a:transaction-123" \
+  -H 'Content-Type: application/json' \
+  -d '{"providerId":"provider-a","externalTransactionId":"transaction-123",
+       "playerId":"0192f28f-...","walletId":"0192f291-...",
+       "roundId":"round-987","gameId":"fortune-chimp",
+       "kind":"BET","money":{"amount":"25.00","currency":"BRL"}}'
+```
+
+```json
+200 {"transactionId":"0192f298-...","status":"PROCESSED",
+     "balance":{"amount":"975.00","currency":"BRL"},"idempotentReplay":false}
+```
+
+O mesmo envio repetido devolve `"idempotentReplay": true` com o **mesmo saldo**
+— o observado no processamento original, mesmo que a carteira já tenha se
+movimentado depois.
+
+| Situação | Código | Corpo |
+|---|---|---|
+| Processada, ou replay | 200 | `status`, `balance`, `idempotentReplay` |
+| Entrada inválida, ou `Idempotency-Key` ausente | 400 | `VALIDATION_ERROR` com `fields` |
+| Sem credencial | 401 | `UNAUTHORIZED` |
+| Sem escopo, ou `providerId` divergente do token | 403 | `FORBIDDEN` |
+| Chave reutilizada com outro conteúdo, ou operação com outra chave | 409 | `CONFLICT` |
+| Recusa de negócio | 422 | `status: REJECTED` com `failureCode` |
+
+Consultas, restritas ao provedor do token:
+
+```sh
+curl -s localhost:8080/wagering/transactions/$TX_ID -H "Authorization: Bearer $PA"
+curl -s localhost:8080/providers/provider-a/wagering/transactions/transaction-123 \
+  -H "Authorization: Bearer $PA"
+```
+
+Transação de outro provedor responde **404**, não 403 — um 403 confirmaria que
+ela existe.
 
 ## Migrations
 

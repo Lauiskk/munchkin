@@ -675,6 +675,22 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
    evento de conclusão — é operação processada com movimentação nula.
 5. **Abertura com saldo zero não cria `OPENING`, ledger nem eventos
    financeiros.** Só a carteira, em versão inicial.
+6. **Nem toda recusa vira registro.** O §7 exige `failureCode` estável em toda
+   rejeição, e todas o têm. Mas há uma linha entre duas famílias:
+
+   - **Recusa de negócio** — a operação endereça uma carteira válida e o negócio
+     a nega: saldo insuficiente, reversão já aplicada. **É persistida** como
+     `REJECTED`, com evento de rejeição. Sem isso o provedor reenviaria para
+     sempre uma operação que já tem desfecho.
+   - **Recusa de alvo** — a operação não endereça uma carteira válida: carteira
+     inexistente, carteira de outro jogador, moeda divergente, valor incompatível
+     com o tipo. **Não é persistida.** Uma linha que referencia uma carteira que
+     a operação não pode tocar não é dado de auditoria, é entrada errada — e no
+     caso da moeda o schema literalmente não a comporta, porque a chave
+     estrangeira é composta por `(carteira, moeda)`.
+
+   As duas devolvem 422 com o código de falha; a diferença está no que fica
+   gravado. A recusa de alvo aparece no log, com o identificador de correlação.
 
 ## 15. Limitações conhecidas
 
