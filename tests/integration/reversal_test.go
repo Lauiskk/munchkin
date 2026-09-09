@@ -389,3 +389,51 @@ func TestReplayDePendenciaJaResolvidaDevolveODesfechoPersistido(t *testing.T) {
 		WHERE transaction_id = ?`, uuid.UUID(pendente.TransactionID)),
 		"o reenvio não pode gerar um segundo lançamento")
 }
+
+// Segurança — a referência é buscada pelo provedor do TOKEN, nunca pelo do
+// corpo. Sem isso, bastaria conhecer o identificador externo alheio para
+// estornar a aposta de outro provedor e creditar a carteira.
+//
+// O worker entra no teste de propósito: ele é um segundo caminho até a mesma
+// decisão, e um isolamento que só valesse no fluxo síncrono seria falso.
+//
+// A resposta esperada é PENDING_REFERENCE, e não uma recusa: para provider-b
+// aquela referência não existe, e é isso que ele tem de ouvir. Um
+// REFERENCE_MISMATCH confirmaria que a transação de provider-a existe — a
+// mesma razão pela qual consulta de outro provedor responde 404 e não 403.
+// Verificado por mutação: removido o filtro por provedor da busca, a resposta
+// vira REJECTED e este teste fica vermelho.
+func TestProvedorNaoReverteAApostaDeOutro(t *testing.T) {
+	a := novoAmbienteReversao(t)
+	w, p := a.carteira(t, "100.00")
+
+	aposta := a.processada(t, operacao(t, w, p, "bet-1", domain.Bet, "80.00"))
+
+	invasor := reversao(t, w, p, "rf-1", domain.Refund, "80.00", "bet-1")
+	invasor.ProviderID = "provider-b"
+	invasor.IdempotencyKey = "provider-b:rf-1"
+
+	out, err := a.processor.Process(a.ctx, invasor)
+	require.NoError(t, err)
+	require.NotEqual(t, domain.Processed, out.Status,
+		"provider-b não pode estornar a aposta de provider-a")
+	assert.Equal(t, domain.PendingReference, out.Status,
+		"para provider-b aquela referência simplesmente não existe")
+
+	// E continua não existindo por mais que o worker insista.
+	for i := 1; i <= appwagering.MaxResolveAttempts; i++ {
+		a.relogio.avancar(appwagering.Backoff(i) + time.Second)
+		if _, err := a.resolver.RunOnce(a.ctx); err != nil {
+			t.Fatalf("rodada %d: %v", i, err)
+		}
+	}
+
+	assert.Equal(t, int64(1), a.conta(t, `SELECT count(*) FROM wager_transactions
+		WHERE id = ? AND status = 'REJECTED' AND failure_code = 'REFERENCE_NOT_FOUND'`,
+		uuid.UUID(out.TransactionID)))
+	assert.Equal(t, "20.00 BRL", a.saldo(t, w),
+		"a carteira não pode se mexer por causa de uma reversão alheia")
+	assert.Zero(t, a.conta(t, `SELECT count(*) FROM wager_transactions
+		WHERE reference_transaction_id = ?`, uuid.UUID(aposta.TransactionID)),
+		"a aposta de provider-a segue sem reversão associada")
+}
