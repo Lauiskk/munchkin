@@ -103,6 +103,8 @@ var Module = fx.Module("postgres",
 		func(r *OutboxRepository) appoutbox.Repository { return r },
 		func(r *InboxRepository) appinbox.Repository { return r },
 		func(d *Database) appinbox.TxManager { return d },
+		func(r *LedgerRepository) appwallet.LedgerReader { return r },
+		func(r *WalletRepository) appwallet.ReconcileReader { return r },
 	),
 	fx.Invoke(register),
 )

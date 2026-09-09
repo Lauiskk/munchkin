@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Lauiskk/munchkin/internal/app"
+	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
 	"github.com/Lauiskk/munchkin/internal/domain/wallet"
 )
@@ -159,4 +160,60 @@ func (r *WalletRepository) UpdateBalance(ctx context.Context, w *wallet.Wallet, 
 			res.RowsAffected, w.ID(), versaoAnterior)
 	}
 	return nil
+}
+
+// Snapshot lê saldo, soma do ledger e contagem numa visão consistente.
+//
+// Uma instrução só. Sob READ COMMITTED cada instrução toma o seu instantâneo no
+// início e a subconsulta enxerga o mesmo — então saldo e ledger são lidos do
+// mesmo estado do banco. Em duas chamadas separadas, uma aposta entre elas
+// compararia o saldo de um instante com o ledger de outro e acusaria
+// divergência onde não há: um alarme que dispara sozinho é pior que alarme
+// nenhum, porque ensina quem o atende a ignorá-lo.
+//
+// A soma é inteira, em unidades mínimas. Exata por construção, sem erro de
+// arredondamento acumulado ao longo de um extrato inteiro.
+func (r *WalletRepository) Snapshot(
+	ctx context.Context, id wallet.ID,
+) (appwallet.Snapshot, error) {
+	var linha struct {
+		StoredMinor     int64  `gorm:"column:stored_minor"`
+		Currency        string `gorm:"column:currency"`
+		CalculatedMinor int64  `gorm:"column:calculated_minor"`
+		Entries         int64  `gorm:"column:entries"`
+		Found           bool   `gorm:"column:found"`
+	}
+
+	err := r.db.Session(ctx).Raw(`
+		SELECT w.balance_minor AS stored_minor,
+		       w.currency      AS currency,
+		       COALESCE(l.total, 0) AS calculated_minor,
+		       COALESCE(l.n, 0)     AS entries,
+		       true                 AS found
+		  FROM wallets w
+		  LEFT JOIN LATERAL (
+		       SELECT SUM(CASE WHEN direction = 'CREDIT' THEN amount_minor
+		                       ELSE -amount_minor END) AS total,
+		              COUNT(*) AS n
+		         FROM wallet_ledger_entries
+		        WHERE wallet_id = w.id
+		  ) l ON TRUE
+		 WHERE w.id = ?`, uuid.UUID(id)).Scan(&linha).Error
+	if err != nil {
+		return appwallet.Snapshot{}, classify(err)
+	}
+	if !linha.Found {
+		return appwallet.Snapshot{}, fmt.Errorf("%w: carteira %s", app.ErrNotFound, id)
+	}
+
+	moeda, err := money.ParseCurrency(linha.Currency)
+	if err != nil {
+		return appwallet.Snapshot{}, err
+	}
+	return appwallet.Snapshot{
+		StoredMinor:     linha.StoredMinor,
+		CalculatedMinor: linha.CalculatedMinor,
+		Entries:         linha.Entries,
+		Currency:        moeda,
+	}, nil
 }
