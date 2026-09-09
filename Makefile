@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 # Munchkin — Makefile
 # Alvos de `gates` provam mecanicamente os critérios eliminatórios do §14.
 
@@ -104,7 +105,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields gate-env-documented gate-log-clean
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields gate-env-documented gate-log-clean gate-openapi-sync
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -245,6 +246,34 @@ gate-log-clean:
 	  echo "✗ atributo de log com nome de conteúdo, não de identificador:"; \
 	  echo "$$ruim" | sed 's/^/    /'; exit 1; fi; \
 	echo "✓ log carrega identificador, não conteúdo"
+
+## gate-openapi-sync: o contrato descreve exatamente as rotas que existem
+#
+# Um documento que descreve a API e diverge dela é pior que documento nenhum:
+# ele mente com autoridade. Rota no roteador e ausente no contrato deixa quem
+# integra sem saber que ela existe; rota no contrato e ausente no roteador é
+# convite a procurá-la.
+#
+# A forma dos corpos é conferida em outro lugar: a suíte de integração valida as
+# respostas REAIS contra os esquemas deste mesmo documento.
+gate-openapi-sync:
+	@rotas=$$(grep -oE 'app\.(Get|Post)\("[^"]+"' internal/adapter/http/router/router.go \
+	  | sed 's/.*("//;s/"//' | sed 's/:\([a-zA-Z]*\)/{\1}/g' | sort -u); \
+	doc=$$(grep -oE '^  /[a-zA-Z{}:/._-]+:' api/openapi.yaml | sed 's/^  //;s/:$$//' | sort -u); \
+	faltando=$$(comm -23 <(echo "$$rotas") <(echo "$$doc")); \
+	sobrando=$$(comm -13 <(echo "$$rotas") <(echo "$$doc")); \
+	if [ -n "$$faltando" ] || [ -n "$$sobrando" ]; then \
+	  [ -n "$$faltando" ] && { echo "✗ rota existe e não está no contrato:"; echo "$$faltando" | sed 's/^/    /'; }; \
+	  [ -n "$$sobrando" ] && { echo "✗ contrato descreve rota que não existe:"; echo "$$sobrando" | sed 's/^/    /'; }; \
+	  exit 1; fi; \
+	codigos=$$(grep -oE 'Failure[A-Za-z]+ +FailureCode += +"[A-Z_]+"' internal/domain/wagering/kind.go \
+	  | sed 's/.*"\(.*\)"/\1/' | sort -u); \
+	nodoc=$$(sed -n '/^    FailureCode:/,/^    [A-Z]/p' api/openapi.yaml \
+	  | grep -oE '^        - [A-Z_]+' | sed 's/^        - //' | sort -u); \
+	if [ "$$codigos" != "$$nodoc" ]; then \
+	  echo "✗ códigos de falha do contrato diferem do catálogo do domínio:"; \
+	  diff <(echo "$$codigos") <(echo "$$nodoc") | sed 's/^/    /'; exit 1; fi; \
+	echo "✓ contrato de API em dia com o roteador"
 
 ## gate-hash-fields: campos do hash de idempotência iguais aos do ARCHITECTURE
 # O conjunto de campos é contrato: acrescentar um muda a identidade de TODA
