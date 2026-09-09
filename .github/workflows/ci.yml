@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27.1"
+
+# Os jobs são independentes de propósito: um gate que falha não pode fazer
+# outro aparecer como "skipped" e passar despercebido.
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}", cache: true }
+      - run: go build ./...
+
+  gates:
+    name: gates (critérios eliminatórios)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}", cache: true }
+      - run: make gates
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}", cache: true }
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+      - run: make lint
+
+  test:
+    name: testes unitários (-race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}", cache: true }
+      - run: go test -race ./...
+
+  secrets:
+    name: nenhum segredo versionado
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: chave privada no repositório
+        run: |
+          if git grep -lE 'BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY' -- . ; then
+            echo "✗ chave privada versionada"; exit 1
+          fi
+          echo "✓ nenhuma chave privada"
+      - name: .env versionado
+        run: |
+          if git ls-files | grep -E '^\.env' | grep -vx '\.env\.example' ; then
+            echo "✗ arquivo .env versionado"; exit 1
+          fi
+          echo "✓ nenhum .env versionado"
