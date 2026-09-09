@@ -169,6 +169,38 @@ onde a única leitura que decide acontece sob lock. Afeta, em tese, a
 reconciliação, que percorre muitos lançamentos — por isso ela roda numa visão
 consistente dos dados, e não em leituras soltas.
 
+**Dois papéis no banco, e a razão não é cerimônia.** A aplicação conecta como
+`munchkin_app`, que **não é dono** do schema; as migrations rodam como o dono.
+Em PostgreSQL, o dono de uma tabela tem privilégio por *ownership*, não por
+concessão — revogar `UPDATE` e `DELETE` do dono não adianta, porque ele pode se
+reconceder a qualquer momento. A imutabilidade do ledger imposta pelo banco só
+existe se quem escreve não for o dono. Privilégios padrão no schema concedem ao
+papel da aplicação o acesso às tabelas que as migrations criarem, para que
+nenhuma migration precise lembrar de conceder — a que esquecesse só falharia em
+execução.
+
+**Fronteira transacional no caso de uso.** A transação é aberta pelo caso de uso
+e propagada aos repositórios pelo `context.Context`. O repositório pede o handle
+corrente e recebe a transação, se houver uma, ou o pool. Assim ele não sabe nem
+precisa saber se está dentro de uma transação, e a fronteira fica legível num
+lugar só. Chamada aninhada reaproveita a transação corrente em vez de abrir uma
+segunda: abrir outra quebraria a atomicidade em silêncio.
+
+Um pânico dentro do bloco desfaz a transação **antes** de subir. Sem isso a
+conexão volta ao pool com transação aberta, e a próxima operação a pegá-la
+herda o estado sujo. O pânico é repropagado — engoli-lo converteria um defeito
+de programação em erro de negócio silencioso.
+
+**O padrão do GORM de embrulhar cada escrita solta numa transação própria está
+desligado.** Não é otimização: é manter visível quem abre e quem fecha
+transação. Com ele ligado, uma escrita fora do bloco transacional commitaria
+sozinha sem ninguém perceber.
+
+**O log do banco não carrega valores.** O registro de consulta do GORM interpola
+os parâmetros dentro do SQL por padrão, o que poria valor monetário,
+identificador de jogador e chave de idempotência em texto claro no log. A
+interpolação está desligada: o log mostra a consulta com marcadores de posição.
+
 **Uso de GORM.** GORM cobre leitura, listagem, paginação e CRUD simples. O
 caminho financeiro — lock, `UPDATE` condicionado, inserção no ledger,
 reivindicação da outbox — é **SQL cru**, escrito à mão, porque o enunciado exige
@@ -516,6 +548,10 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
   difere da biblioteca padrão. Um gate proíbe o uso do contexto errado nos
   handlers, mas a diferença existe e é relevante para instrumentação futura.
 - **Reversão parcial não é suportada**, conforme o escopo definido.
+- **O dono do schema no ambiente local é superusuário**, porque é o usuário de
+  bootstrap da imagem do PostgreSQL. Em produção o dono seria um papel comum, e
+  o superusuário não seria usado por nenhum componente da aplicação. A
+  separação que importa — a aplicação não ser dona — já vale nos dois casos.
 
 ## 16. Trabalho não concluído
 

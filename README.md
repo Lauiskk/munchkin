@@ -18,7 +18,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 00 | Fundação: módulo, gates dos critérios eliminatórios, CI | ✅ |
 | 01 | Composição com Fx, Fiber, erros padronizados, `/health/live` | ✅ |
 | 02 | Keycloak, cache de JWKS, middleware de autenticação | ✅ |
-| 03 | Postgres, ciclo de vida, `/health/ready` | ⬜ |
+| 03 | Postgres, ciclo de vida, `/health/ready` | ✅ |
 | 04 | Migrations versionadas e schema com as constraints | ⬜ |
 | 05 | `Money` | ⬜ |
 | 06 | Agregados de domínio | ⬜ |
@@ -186,5 +186,27 @@ dispara não prova nada.
 | Prometheus | 9091 |
 | Grafana | 3000 |
 
-Ajustáveis pelo `.env`. Postgres, LocalStack, Prometheus e Grafana entram nas
-próximas etapas — hoje o compose sobe apenas Keycloak e a aplicação.
+Ajustáveis pelo `.env`. LocalStack, Prometheus e Grafana entram nas próximas
+etapas — hoje o compose sobe Keycloak, PostgreSQL e a aplicação.
+
+## Banco de dados
+
+A aplicação conecta como `munchkin_app`, que **não é dono** do schema. As
+migrations rodam como o dono. A separação existe porque, em PostgreSQL, o dono
+de uma tabela tem privilégio por *ownership*: revogar `UPDATE` e `DELETE` dele
+não teria efeito, e a imutabilidade do ledger imposta pelo banco deixaria de
+existir.
+
+`GET /health/ready` reflete o estado real da dependência:
+
+```sh
+curl -s localhost:8080/health/ready
+# {"status":"ready","checks":{"postgres":"ok"}}
+
+docker compose stop postgres
+curl -s localhost:8080/health/ready
+# {"status":"not_ready","checks":{"postgres":"failing"}}   (HTTP 503)
+
+curl -s localhost:8080/health/live
+# {"status":"alive"}   (segue 200 — vivacidade não depende do banco)
+```
