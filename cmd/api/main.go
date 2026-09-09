@@ -20,6 +20,7 @@ import (
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/config"
+	"github.com/Lauiskk/munchkin/internal/worker"
 	"github.com/Lauiskk/munchkin/pkg/logs"
 )
 
@@ -71,6 +72,7 @@ func main() {
 		appwagering.Module,
 		auth.Module,
 		server.Module,
+		worker.Module,
 	)
 
 	app.Run()
