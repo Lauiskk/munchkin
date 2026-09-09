@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Lauiskk/munchkin/internal/app"
+	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
 	"github.com/Lauiskk/munchkin/internal/domain/wagering"
 	"github.com/Lauiskk/munchkin/internal/domain/wallet"
@@ -187,4 +188,144 @@ func (r *TransactionRepository) FindByID(ctx context.Context, id wagering.Transa
 		return nil, classify(err)
 	}
 	return row.toDomain()
+}
+
+// Claim tenta reivindicar a operação, inserindo-a.
+//
+// Este método É a verificação de idempotência. Não existe consulta prévia: o
+// INSERT pergunta e responde numa ida só, e o índice único decide. Entre um
+// SELECT e um INSERT outro processo insere — a consulta antes daria falsa
+// segurança, e é justamente sob concorrência que ela falharia.
+//
+// Quando cinquenta requisições idênticas chegam juntas, quarenta e nove
+// BLOQUEIAM no índice único até a primeira confirmar, e então recebem o conflito
+// e leem o resultado dela. O PostgreSQL resolve a corrida; nenhum código nosso
+// precisa coordenar nada.
+func (r *TransactionRepository) Claim(ctx context.Context, t *wagering.Transaction) (appwagering.ClaimResult, error) {
+	if !InTransaction(ctx) {
+		return appwagering.ClaimResult{}, fmt.Errorf("%w: Claim", ErrNoTransaction)
+	}
+
+	row := rowFromTransaction(t)
+	res := r.db.Session(ctx).Exec(`
+		INSERT INTO wager_transactions
+		  (id, kind, status, wallet_id, player_id, amount_minor, currency,
+		   provider_id, external_transaction_id, idempotency_key, payload_hash,
+		   round_id, game_id, reference_external_transaction_id,
+		   attempts, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT DO NOTHING`,
+		row.ID, row.Kind, row.Status, row.WalletID, row.PlayerID,
+		row.AmountMinor, row.Currency,
+		row.ProviderID, row.ExternalID, row.IdempotencyKey, row.PayloadHash,
+		row.RoundID, row.GameID, row.ReferenceExternalID,
+		row.Attempts, row.CreatedAt, row.UpdatedAt)
+
+	if res.Error != nil {
+		return appwagering.ClaimResult{}, classify(res.Error)
+	}
+	if res.RowsAffected == 1 {
+		return appwagering.ClaimResult{Claimed: true}, nil
+	}
+
+	// Não inseriu: alguém já ocupa esta identidade. A linha está confirmada e
+	// visível — o ON CONFLICT esperou o outro escritor terminar.
+	origem := t.Origin()
+	if origem == nil {
+		return appwagering.ClaimResult{}, fmt.Errorf("conflito em operação sem origem externa: %s", t.ID())
+	}
+
+	existente, err := r.findConflicting(ctx, origem.ProviderID, origem.ExternalID, origem.IdempotencyKey)
+	if err != nil {
+		return appwagering.ClaimResult{}, err
+	}
+	return appwagering.ClaimResult{Claimed: false, Existing: existente}, nil
+}
+
+// findConflicting busca a transação que ocupa a identidade reivindicada.
+//
+// Procura primeiro pelo identificador externo, porque é ele que define a
+// operação financeira — a chave identifica a tentativa. Se a operação já existe,
+// é o registro dela que decide entre replay e conflito; só quando ela não existe
+// é que a chave reutilizada para outra operação vira a explicação.
+func (r *TransactionRepository) findConflicting(
+	ctx context.Context, provider wagering.ProviderID, external wagering.ExternalID, key string,
+) (*wagering.Transaction, error) {
+	porOperacao, err := r.FindByProviderExternalID(ctx, provider, external)
+	if err == nil {
+		return porOperacao, nil
+	}
+	if !errors.Is(err, app.ErrNotFound) {
+		return nil, err
+	}
+
+	var row transactionRow
+	err = r.db.Session(ctx).Raw(`
+		SELECT * FROM wager_transactions
+		 WHERE provider_id = ? AND idempotency_key = ?`,
+		string(provider), key).Scan(&row).Error
+	if err != nil {
+		return nil, classify(err)
+	}
+	if row.ID == uuid.Nil {
+		// Conflito sem registro correspondente não deveria acontecer: o
+		// ON CONFLICT espera o outro escritor confirmar antes de desistir.
+		return nil, fmt.Errorf("conflito de idempotência sem registro correspondente para %s/%s",
+			provider, external)
+	}
+	return row.toDomain()
+}
+
+// FindByProviderExternalID busca pela identidade da operação no provedor.
+//
+// O provedor faz parte da chave de busca, não é filtro aplicado depois: assim
+// não existe caminho em que a consulta devolva uma linha de outro provedor e o
+// filtro seja esquecido adiante.
+func (r *TransactionRepository) FindByProviderExternalID(
+	ctx context.Context, provider wagering.ProviderID, external wagering.ExternalID,
+) (*wagering.Transaction, error) {
+	var row transactionRow
+	err := r.db.Session(ctx).Raw(`
+		SELECT * FROM wager_transactions
+		 WHERE provider_id = ? AND external_transaction_id = ?`,
+		string(provider), string(external)).Scan(&row).Error
+	if err != nil {
+		return nil, classify(err)
+	}
+	if row.ID == uuid.Nil {
+		return nil, fmt.Errorf("%w: operação %s/%s", app.ErrNotFound, provider, external)
+	}
+	return row.toDomain()
+}
+
+// Settle grava o desfecho de uma transação.
+//
+// Só avança de PENDING ou PENDING_REFERENCE: a cláusula de estado na condição é
+// a garantia de que um desfecho nunca sobrescreve outro já registrado. Se a
+// atualização não afetar linha nenhuma, algo concluiu a transação por outro
+// caminho, e isso precisa falhar alto em vez de sobrescrever em silêncio.
+func (r *TransactionRepository) Settle(ctx context.Context, t *wagering.Transaction) error {
+	if !InTransaction(ctx) {
+		return fmt.Errorf("%w: Settle", ErrNoTransaction)
+	}
+
+	row := rowFromTransaction(t)
+	res := r.db.Session(ctx).Exec(`
+		UPDATE wager_transactions
+		   SET status = ?, failure_code = ?, result_balance_minor = ?,
+		       reference_transaction_id = ?, attempts = ?, next_attempt_at = ?,
+		       processed_at = ?, updated_at = ?
+		 WHERE id = ? AND status IN ('PENDING', 'PENDING_REFERENCE')`,
+		row.Status, row.FailureCode, row.ResultBalanceMinor,
+		row.ReferenceID, row.Attempts, row.NextAttemptAt,
+		row.ProcessedAt, row.UpdatedAt, row.ID)
+
+	if res.Error != nil {
+		return classify(res.Error)
+	}
+	if res.RowsAffected != 1 {
+		return fmt.Errorf("desfecho da transação %s afetou %d linhas: o estado já era terminal",
+			t.ID(), res.RowsAffected)
+	}
+	return nil
 }
