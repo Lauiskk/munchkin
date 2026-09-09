@@ -135,6 +135,40 @@ falha e o evento de rejeição precisam sobreviver, senão a operação some e o
 provedor reenviaria para sempre. Como a decisão acontece antes de qualquer
 escrita de saldo, basta gravar o desfecho e commitar — não é preciso savepoint.
 
+### 4.1 ACID, letra por letra
+
+Não basta afirmar que o sistema é transacional. Cada garantia tem um mecanismo
+concreto, e é ele que responde quando alguém pergunta como.
+
+| | Garantia | Como é obtida aqui |
+|---|---|---|
+| **A** | Atomicidade | Uma transação SQL cobre estado da operação, saldo, lançamento do ledger, registro de inbox e eventos de outbox. Não há segunda fase, nem escrita fora dela. Rejeição de negócio também commita — o registro terminal e seu evento fazem parte do resultado, não são desistência. |
+| **C** | Consistência | As invariantes vivem no schema, não no código: `CHECK (balance_minor >= 0)`, unicidade de `(providerId, externalTransactionId)`, unicidade de `(walletId, transactionId)` no ledger, índice parcial permitindo no máximo uma reversão bem-sucedida por referência, e `CHECK` separando operação interna de externa. Um caminho de código com defeito é recusado pelo banco; a garantia não depende de a aplicação estar correta. |
+| **I** | Isolamento | `SELECT ... FOR UPDATE` na linha da carteira serializa os escritores daquela carteira. A leitura que embasa a decisão do domínio acontece **depois** de o lock ser adquirido, então ela enxerga o estado já commitado por quem chegou antes. |
+| **D** | Durabilidade | O `COMMIT` é a fronteira do que existe. Evento publicado antes do commit é proibido — o worker de outbox só enxerga o que já está em disco. Uma queda entre commit e publicação é recuperável; uma publicação antes do commit não. |
+
+**Nível de isolamento: `READ COMMITTED`, o padrão do Postgres.** A pergunta
+natural é por que não `SERIALIZABLE`, e a resposta é que ele não acrescenta
+garantia aqui e cobra caro.
+
+O que precisamos evitar é *lost update* no saldo. `READ COMMITTED` sozinho não
+evita — mas `READ COMMITTED` com lock explícito de linha evita, porque o segundo
+escritor só lê depois que o primeiro commitou. `SERIALIZABLE` daria o mesmo
+resultado por outro caminho: detectando o conflito e **abortando** uma das
+transações com erro de serialização, que a aplicação teria de reexecutar. Isso
+significa laço de retry em todo caminho financeiro, e um cenário de teste cujo
+resultado é certo mas cujo caminho varia.
+
+Trocamos detecção-e-repetição por prevenção. Além disso, as invariantes que mais
+importam — não negatividade, unicidade, imutabilidade do ledger — são impostas
+por constraint, e constraint vale em qualquer nível de isolamento.
+
+**Anomalias que assumimos.** Em `READ COMMITTED`, duas leituras dentro da mesma
+transação podem ver estados diferentes. Isso não afeta o caminho financeiro,
+onde a única leitura que decide acontece sob lock. Afeta, em tese, a
+reconciliação, que percorre muitos lançamentos — por isso ela roda numa visão
+consistente dos dados, e não em leituras soltas.
+
 **Uso de GORM.** GORM cobre leitura, listagem, paginação e CRUD simples. O
 caminho financeiro — lock, `UPDATE` condicionado, inserção no ledger,
 reivindicação da outbox — é **SQL cru**, escrito à mão, porque o enunciado exige
@@ -381,6 +415,27 @@ então as dependências fecham.
 
 Nenhum worker é interrompido no meio de uma transação sem que ela seja desfeita:
 o commit é atômico, então ou a operação inteira valeu, ou nenhuma parte dela valeu.
+
+## 12.1 Resiliência a pânico
+
+Um pânico não pode derrubar o serviço, e há dois casos com tratamentos
+diferentes — a confusão entre eles é uma fonte clássica de queda em produção.
+
+**No tratador HTTP**, o middleware de recuperação converte o pânico em resposta
+500 com o corpo padrão. A mensagem do pânico e a pilha vão para o log e nunca
+para o cliente: elas revelam caminho de arquivo, nome de função e às vezes valor
+de variável. A requisição afetada falha; o processo segue atendendo.
+
+**Em goroutine**, o recover de quem iniciou **não alcança** o pânico — ele
+derruba o processo inteiro. Como todo worker é goroutine, cada um é iniciado por
+um utilitário que instala o próprio recover, registra a falha com nome da tarefa
+e pilha, e mantém o laço vivo com um intervalo de espera entre iterações. O
+intervalo existe para que uma falha determinística não vire laço quente
+consumindo CPU e enchendo o log.
+
+A distinção entre os dois casos está coberta por teste: um tratador que entra em
+pânico devolve 500 sem vazar a pilha e o serviço continua respondendo; uma
+goroutine que entra em pânico é registrada e o laço prossegue.
 
 ## 13. Observabilidade (planejado)
 

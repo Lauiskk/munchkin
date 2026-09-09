@@ -16,7 +16,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | Etapa | Entrega | Estado |
 |---|---|---|
 | 00 | Fundação: módulo, gates dos critérios eliminatórios, CI | ✅ |
-| 01 | Composição com Fx, Fiber, erros padronizados, `/health/live` | ⬜ |
+| 01 | Composição com Fx, Fiber, erros padronizados, `/health/live` | ✅ |
 | 02 | Keycloak, cache de JWKS, middleware de autenticação | ⬜ |
 | 03 | Postgres, ciclo de vida, `/health/ready` | ⬜ |
 | 04 | Migrations versionadas e schema com as constraints | ⬜ |
@@ -68,7 +68,29 @@ Verificação rápida:
 
 ```sh
 curl -s localhost:8080/health/live
+# {"status":"alive"}
+
 curl -s localhost:8080/health/ready
+# {"status":"ready","checks":{"postgres":"ok"}}
+
+curl -s -D- localhost:8080/health/live | grep -i x-correlation
+# X-Correlation-Id: 01a083fe-4e88-764c-957a-0dc54a549dde
+```
+
+Toda resposta carrega `X-Correlation-Id`. Enviar o cabeçalho na requisição
+propaga o seu identificador — desde que ele seja alfanumérico, com `-`, `_` ou
+`.`, e no máximo 64 caracteres; fora disso o serviço gera o próprio, para que
+ninguém consiga forjar registros no log estruturado.
+
+Erros seguem sempre o mesmo formato:
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "a requisição contém campos inválidos",
+  "fields": [{ "field": "money.amount", "message": "...", "code": "INVALID_FORMAT" }],
+  "correlationId": "01a083fe-4e9b-7890-a53b-c2ba55da3806"
+}
 ```
 
 ## Migrations
