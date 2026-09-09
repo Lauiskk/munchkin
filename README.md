@@ -11,7 +11,9 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Estado atual
 
-> Atualizado a cada etapa. O que não está marcado, não existe ainda.
+> Atualizado a cada etapa. ✅ significa implementado **e** verificado; 🟡
+> significa implementado com verificação pendente; o que não está marcado não
+> existe ainda.
 
 | Etapa | Entrega | Estado |
 |---|---|---|
@@ -22,7 +24,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 04 | Migrations versionadas e schema com as constraints | ✅ |
 | 05 | `Money` | ✅ |
 | 06 | Agregados de domínio | ✅ |
-| 07 | Abertura de carteira | ⬜ |
+| 07 | Abertura de carteira | 🟡 implementado, integração pendente |
 | 08 | Operação financeira e idempotência | ⬜ |
 | 09 | Reversões e referências pendentes | ⬜ |
 | 10 | Outbox e publicação | ⬜ |
