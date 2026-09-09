@@ -103,5 +103,6 @@ var Module = fx.Module("worker",
 	fx.Invoke(
 		startReferenceResolver,
 		startOutboxPublisher,
+		startTransactionConsumer,
 	),
 )
