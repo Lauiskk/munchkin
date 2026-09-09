@@ -60,7 +60,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-no-float gate-domain-pure gate-fiber-ctx
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-fiber-ctx
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -74,6 +74,19 @@ gate-vet:
 	@if [ "$$($(GO) list $(PKG) 2>/dev/null | wc -l)" -eq 0 ]; then \
 	  echo "· nenhum pacote Go ainda, gate ocioso"; exit 0; fi; \
 	$(GO) vet $(PKG) && echo "✓ go vet"
+
+## gate-deps: go.mod e go.sum sincronizados com o código (§15: dependências reproduzíveis)
+gate-deps:
+	@cp go.mod go.mod.gatebak; cp go.sum go.sum.gatebak 2>/dev/null || true; \
+	$(GO) mod tidy; \
+	status=0; \
+	if ! diff -q go.mod go.mod.gatebak >/dev/null 2>&1 || ! diff -q go.sum go.sum.gatebak >/dev/null 2>&1; then \
+	  echo "✗ go.mod/go.sum fora de sincronia — rode 'go mod tidy' e versione o resultado"; \
+	  status=1; \
+	fi; \
+	mv go.mod.gatebak go.mod; mv go.sum.gatebak go.sum 2>/dev/null || true; \
+	if [ $$status -eq 0 ]; then echo "✓ dependências sincronizadas"; fi; \
+	exit $$status
 
 ## gate-no-float: nenhum ponto flutuante onde circula dinheiro (§5.1, eliminatório)
 gate-no-float:
@@ -116,4 +129,4 @@ gate-fiber-ctx:
 
 .PHONY: help build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
-        gate-domain-pure gate-fiber-ctx
+        gate-domain-pure gate-fiber-ctx gate-deps
