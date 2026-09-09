@@ -25,13 +25,14 @@ var ErrInvalid = errors.New("configuração inválida")
 
 // Config é a configuração completa da aplicação.
 type Config struct {
-	App    App
-	HTTP   HTTP
-	Log    Log
-	Auth   Auth
-	DB     DB
-	Worker Worker
-	AWS    AWS
+	App     App
+	HTTP    HTTP
+	Log     Log
+	Auth    Auth
+	DB      DB
+	Worker  Worker
+	AWS     AWS
+	Metrics Metrics
 }
 
 // App identifica o ambiente de execução.
@@ -95,6 +96,12 @@ type Worker struct {
 	// Precisa ser maior que o tempo de uma publicação, com folga, e menor que
 	// o que se aceita esperar quando uma instância morre segurando o registro.
 	OutboxLease time.Duration
+}
+
+// Metrics reúne a exposição de métricas.
+type Metrics struct {
+	// Port é a porta do listener de métricas, separado da API de propósito.
+	Port int
 }
 
 // AWS reúne o acesso ao SQS.
@@ -244,6 +251,9 @@ func Load() (Config, error) {
 			ConsumerInterval:  v.duration("WORKER_CONSUMER_INTERVAL", time.Second),
 			ConsumerBatch:     v.positiveInt("WORKER_CONSUMER_BATCH", 10),
 			ConsumerWait:      v.duration("WORKER_CONSUMER_WAIT", 20*time.Second),
+		},
+		Metrics: Metrics{
+			Port: v.port("METRICS_PORT", 9090),
 		},
 		AWS: AWS{
 			Region:               v.required("AWS_REGION"),
