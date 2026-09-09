@@ -2,12 +2,16 @@
 //
 // Mora em pkg/ e não em internal/adapter/ porque não adapta nada do domínio:
 // é infraestrutura de processo, do mesmo tipo de `logs` e `safe`.
+//
+// Coleta e exposição são coisas separadas: quem serve /metrics é o pacote `ops`,
+// junto da documentação. Aqui só se define e se registra o que é medido.
 package metrics
 
 import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/fx"
 
 	"github.com/Lauiskk/munchkin/internal/app"
 )
@@ -131,3 +135,11 @@ func (r *Registry) ReconciliationDivergence() { r.divergencias.Inc() }
 func (r *Registry) OutboxPendingAge(d time.Duration) { r.atrasoOutbox.Set(d.Seconds()) }
 
 var _ app.Metrics = (*Registry)(nil)
+
+// Module provê o registro e a porta que os casos de uso enxergam.
+var Module = fx.Module("metrics",
+	fx.Provide(
+		New,
+		func(r *Registry) app.Metrics { return r },
+	),
+)

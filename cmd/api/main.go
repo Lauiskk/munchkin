@@ -16,6 +16,7 @@ import (
 
 	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
+	"github.com/Lauiskk/munchkin/internal/adapter/ops"
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
 	"github.com/Lauiskk/munchkin/internal/adapter/sqs"
 	appinbox "github.com/Lauiskk/munchkin/internal/app/inbox"
@@ -76,6 +77,7 @@ func main() {
 		appwagering.Module,
 		auth.Module,
 		metrics.Module,
+		ops.Module,
 		sqs.Module,
 		server.Module,
 		worker.Module,
