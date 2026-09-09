@@ -15,12 +15,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
+	"github.com/Lauiskk/munchkin/internal/adapter/http/router"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/apperr"
 	"github.com/Lauiskk/munchkin/pkg/correlation"
 )
+
+// tokenValido é aceito pelo verificador de teste; qualquer outro é recusado.
+const tokenValido = "token-de-teste-valido"
 
 func newApp(t *testing.T, checks ...handler.ReadinessCheck) *fiber.App {
 	t.Helper()
@@ -29,7 +34,27 @@ func newApp(t *testing.T, checks ...handler.ReadinessCheck) *fiber.App {
 		App:  config.App{Env: config.EnvTest},
 		HTTP: config.HTTP{RequestTimeout: 2 * time.Second},
 	}
-	return server.New(cfg, log, handler.NewHealth(log, time.Second, checks...))
+	return server.New(cfg, log, handler.NewHealth(log, time.Second, checks...),
+		verificadorDeTeste{}, router.IsPublic)
+}
+
+// autenticada acrescenta uma credencial válida à requisição.
+func autenticada(req *http.Request) *http.Request {
+	req.Header.Set(fiber.HeaderAuthorization, "Bearer "+tokenValido)
+	return req
+}
+
+// verificadorDeTeste substitui o IdP na exercitação da cadeia de middleware.
+// A validação real de token, contra um Keycloak de verdade, está nos testes de
+// integração — aqui o que se testa é a cadeia, não a criptografia.
+type verificadorDeTeste struct{}
+
+func (verificadorDeTeste) Verify(_ context.Context, raw string) (auth.Identity, error) {
+	if raw != tokenValido {
+		return auth.Identity{}, auth.ErrTokenInvalid
+	}
+	return auth.NewIdentity("sub-teste", "provider-a", "provider-a",
+		auth.ScopeWageringRead, auth.ScopeWageringWrite), nil
 }
 
 func do(t *testing.T, app *fiber.App, req *http.Request) (*http.Response, map[string]any) {
@@ -109,7 +134,7 @@ func TestPanicoNoHandlerViraQuinhentosSemVazarPilha(t *testing.T) {
 		panic("índice fora do intervalo em algum lugar profundo")
 	})
 
-	resp, body := do(t, app, httptest.NewRequest(http.MethodGet, "/estoura", nil))
+	resp, body := do(t, app, autenticada(httptest.NewRequest(http.MethodGet, "/estoura", nil)))
 
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	assert.Equal(t, string(apperr.CodeInternal), body["code"])
@@ -124,13 +149,24 @@ func TestPanicoNoHandlerViraQuinhentosSemVazarPilha(t *testing.T) {
 	assert.Equal(t, "alive", body2["status"])
 }
 
-func TestRotaInexistenteRespondeNoFormatoPadrao(t *testing.T) {
+// Sem credencial, uma rota inexistente responde 401 e não 404. É deliberado:
+// 404 contaria a um chamador anônimo quais caminhos existem, e o mapa de uma
+// API financeira não é informação pública.
+func TestRotaInexistenteNaoRevelaSuaAusenciaAoAnonimo(t *testing.T) {
 	app := newApp(t)
 	resp, body := do(t, app, httptest.NewRequest(http.MethodGet, "/nao-existe", nil))
 
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, string(apperr.CodeUnauthorized), body["code"])
+	assert.NotEmpty(t, body["correlationId"])
+}
+
+func TestRotaInexistenteRespondeQuatrocentosEQuatroParaAutenticado(t *testing.T) {
+	app := newApp(t)
+	resp, body := do(t, app, autenticada(httptest.NewRequest(http.MethodGet, "/nao-existe", nil)))
+
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Equal(t, string(apperr.CodeNotFound), body["code"])
-	assert.NotEmpty(t, body["correlationId"])
 }
 
 func TestErroDaAplicacaoPreservaCodigoEStatus(t *testing.T) {
@@ -140,7 +176,7 @@ func TestErroDaAplicacaoPreservaCodigoEStatus(t *testing.T) {
 			WithCause(errors.New("detalhe interno que não pode vazar"))
 	})
 
-	resp, body := do(t, app, httptest.NewRequest(http.MethodGet, "/rejeitado", nil))
+	resp, body := do(t, app, autenticada(httptest.NewRequest(http.MethodGet, "/rejeitado", nil)))
 
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	assert.Equal(t, string(apperr.CodeBusinessRejected), body["code"])
@@ -191,7 +227,7 @@ func TestContextDaRequisicaoCarregaPrazoECorrelacao(t *testing.T) {
 		return c.JSON(fiber.Map{"ok": true})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/inspeciona", nil)
+	req := autenticada(httptest.NewRequest(http.MethodGet, "/inspeciona", nil))
 	req.Header.Set(correlation.HeaderName, "abc-123")
 	resp, _ := do(t, app, req)
 
