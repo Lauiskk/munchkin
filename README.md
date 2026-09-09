@@ -28,7 +28,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 08 | Operação financeira e idempotência | ✅ |
 | 09 | Reversões e referências pendentes | ✅ |
 | 10 | Outbox e publicação | ✅ |
-| 11 | Consumidor SQS e inbox | ⬜ |
+| 11 | Consumidor SQS e inbox | ✅ |
 | 12 | Consultas e reconciliação | ⬜ |
 | 13 | Observabilidade | ⬜ |
 | 14 | Documentação de API (Swagger) | ⬜ |
@@ -400,6 +400,54 @@ novo — com o mesmo `eventId`, que é o identificador de deduplicação da fila
 
 Instantes em RFC 3339 UTC com precisão fixa de milissegundos, no envelope e
 dentro do `data`. Dinheiro sempre em string decimal.
+
+### Entrada por mensageria
+
+A mesma operação financeira entra por HTTP e por `wager-transactions.fifo`,
+usando o **mesmo caso de uso** e a **mesma decodificação** dos campos. A única
+diferença é onde a chave de idempotência viaja: cabeçalho no HTTP, `data` na
+mensagem.
+
+```sh
+docker compose exec localstack awslocal sqs send-message \
+  --queue-url http://localstack:4566/000000000000/wager-transactions.fifo \
+  --message-group-id "$WALLET_ID" --message-deduplication-id msg-123 \
+  --message-body '{
+    "messageId": "msg-123",
+    "type": "WagerTransactionRequested",
+    "occurredAt": "2026-09-09T12:00:00.000Z",
+    "data": {
+      "providerId": "provider-a", "externalTransactionId": "transaction-123",
+      "idempotencyKey": "provider-a:transaction-123",
+      "playerId": "0192f28f-...", "walletId": "0192f291-...",
+      "roundId": "round-987", "gameId": "fortune-chimp",
+      "kind": "BET", "money": {"amount": "25.00", "currency": "BRL"}
+    }}'
+```
+
+| Item | Valor |
+|---|---|
+| Identidade durável da mensagem | `messageId`, por consumidor |
+| Nome do consumidor na inbox | `wager-transactions` |
+| Chave de idempotência financeira | `data.idempotencyKey` |
+| Visibility timeout | 30s |
+| `maxReceiveCount` | 5, então redrive para a DLQ |
+| Long polling | 20s |
+
+**O que acontece com a mensagem:**
+
+| Situação | Destino |
+|---|---|
+| Processada, ou já concluída antes | Removida da fila |
+| Recusa de negócio (`REJECTED` com `failureCode`) | Removida — retentar daria a mesma recusa |
+| Falha transitória | Mantida; volta a ficar visível e é retentada |
+| Envelope inválido, campo irrecuperável, `OPENING` | DLQ imediatamente, com o motivo em atributo |
+| Mesmo `messageId` com conteúdo diferente | DLQ — é mensagem inválida, não atualização |
+
+O registro da inbox e o efeito financeiro são gravados **no mesmo commit**, e a
+mensagem só é removida depois dele. Uma interrupção entre o commit e a remoção
+causa reentrega, e a reentrega encontra a inbox concluída: remove sem
+reprocessar.
 
 ## Migrations
 

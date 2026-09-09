@@ -545,14 +545,34 @@ carteira chegam em ordem, e carteiras distintas não se serializam entre si.
 deduplicaria por hash do corpo, e dois eventos legítimos de conteúdo idêntico
 dentro da janela de cinco minutos seriam engolidos.
 
-**Inbox (planejado).** Na entrada por SQS, o registro de inbox — identidade da mensagem, do
+**Inbox.** Na entrada por SQS, o registro de inbox — identidade da mensagem, do
 consumidor e o hash — compartilha a transação das mudanças de domínio, do ledger
 e dos eventos. A mensagem só é removida da fila **depois** do commit. Uma
 interrupção entre o commit e a remoção causa reentrega, e a reentrega encontra o
 registro de inbox já concluído: remove a mensagem sem reprocessar.
 
 Reentrega com hash divergente para a mesma identidade de mensagem é tratada como
-mensagem inválida, não como atualização.
+mensagem inválida, não como atualização — aceitá-la seria permitir que alguém
+reescrevesse o passado reusando um identificador já gasto.
+
+O destino da mensagem tem três casos. Processada ou já concluída: removida.
+Recusa de negócio: **também** removida, porque é desfecho e não falha — está
+persistida, com código e evento, e retentar produziria a mesma recusa para
+sempre. Falha transitória: mantida, volta a ficar visível, e o redrive a leva à
+DLQ depois de cinco entregas. Erro permanente — envelope inválido, campo
+irrecuperável, reentrega divergente — vai à DLQ **imediatamente**, porque o
+resultado já é conhecido na primeira tentativa e quatro reentregas só atrasariam
+o diagnóstico.
+
+**A entrada por SQS não tem token.** No HTTP o `providerId` vem do token e nunca
+do corpo; na mensagem não há alternativa, e ele vem do corpo. A fronteira de
+confiança passa a ser a **política de acesso da fila**: quem consegue publicar em
+`wager-transactions.fifo` é considerado autorizado. Esta suposição está
+declarada aqui de propósito, e não escondida — é a limitação real do desenho, e
+provisionar essa política é responsabilidade da infraestrutura, não da
+aplicação. O que a aplicação garante do seu lado é que `OPENING` continua
+recusado pela mesma validação do HTTP: um produtor que pudesse enviá-la
+creditaria carteira sem passar pela abertura.
 
 ### 9.1 Eventos gravados na outbox
 
@@ -799,8 +819,8 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 11 a 16 da tabela do `README.md` ainda não foram implementadas.
-  Em particular: os eventos são gravados e publicados, mas ainda não há consumo
-  por SQS nem inbox. O §9 marca o que é desenho e o que é código.
+- As etapas 12 a 16 da tabela do `README.md` ainda não foram implementadas:
+  consultas com cursor, reconciliação, observabilidade, Swagger e as suítes
+  finais de integração e recuperação.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.
