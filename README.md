@@ -20,7 +20,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 02 | Keycloak, cache de JWKS, middleware de autenticação | ✅ |
 | 03 | Postgres, ciclo de vida, `/health/ready` | ✅ |
 | 04 | Migrations versionadas e schema com as constraints | ✅ |
-| 05 | `Money` | ⬜ |
+| 05 | `Money` | ✅ |
 | 06 | Agregados de domínio | ⬜ |
 | 07 | Abertura de carteira | ⬜ |
 | 08 | Operação financeira e idempotência | ⬜ |
