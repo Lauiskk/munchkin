@@ -15,6 +15,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
 	"github.com/Lauiskk/munchkin/internal/app"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
+	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/internal/domain/event"
 	"github.com/Lauiskk/munchkin/internal/domain/ledger"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
@@ -40,7 +41,16 @@ type ambiente struct {
 
 func novoAmbiente(t *testing.T) ambiente {
 	t.Helper()
-	dbCfg := migrado(t)
+	return novoAmbienteSobre(t, migrado(t))
+}
+
+// novoAmbienteSobre monta o ambiente sobre um banco escolhido pelo chamador.
+//
+// Existe para os testes que precisam controlar o ciclo de vida do banco — como
+// o que o derruba no meio do caminho para exercitar indisponibilidade.
+func novoAmbienteSobre(t *testing.T, dbCfg config.DB) ambiente {
+	t.Helper()
+	aplicarMigrations(t, dbCfg)
 	db := abrir(t, dbCfg)
 
 	wallets := postgres.NewWalletRepository(db)

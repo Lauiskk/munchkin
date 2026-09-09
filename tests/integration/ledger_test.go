@@ -17,6 +17,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/app"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
+	"github.com/Lauiskk/munchkin/internal/config"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wagering"
 	domainwallet "github.com/Lauiskk/munchkin/internal/domain/wallet"
 )
@@ -30,7 +31,17 @@ type ambienteExtrato struct {
 
 func novoAmbienteExtrato(t *testing.T) ambienteExtrato {
 	t.Helper()
-	a := novoAmbiente(t)
+	return montarAmbienteExtrato(t, novoAmbiente(t))
+}
+
+// novoAmbienteExtratoSobre monta o ambiente sobre um banco escolhido.
+func novoAmbienteExtratoSobre(t *testing.T, dbCfg config.DB) ambienteExtrato {
+	t.Helper()
+	return montarAmbienteExtrato(t, novoAmbienteSobre(t, dbCfg))
+}
+
+func montarAmbienteExtrato(t *testing.T, a ambiente) ambienteExtrato {
+	t.Helper()
 	rel := &relogioMovel{agora: agoraFixo}
 	metricas := &registroDeMetricas{}
 	transacoes := postgres.NewTransactionRepository(a.db)

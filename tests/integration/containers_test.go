@@ -101,3 +101,11 @@ func asOwner(db config.DB) config.DB {
 	db.Password = config.Secret(testOwnerPassword)
 	return db
 }
+
+// caminhoDoScriptDePapeis devolve o script de bootstrap dos papéis do banco.
+func caminhoDoScriptDePapeis(t *testing.T) string {
+	t.Helper()
+	p, err := filepath.Abs(filepath.Join("..", "..", "deploy", "postgres", "10-roles.sh"))
+	require.NoError(t, err)
+	return p
+}

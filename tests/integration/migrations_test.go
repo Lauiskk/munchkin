@@ -438,3 +438,11 @@ func TestInstantaneoDoEventoEhImutavel(t *testing.T) {
 		assert.Contains(t, err.Error(), "outbox_events_lease_pairing")
 	})
 }
+
+// aplicarMigrations leva um banco já de pé até a versão corrente do schema.
+func aplicarMigrations(t *testing.T, dbCfg config.DB) {
+	t.Helper()
+	m := novoMigrator(t, asOwner(dbCfg))
+	require.NoError(t, m.Up())
+	require.NoError(t, m.Close())
+}

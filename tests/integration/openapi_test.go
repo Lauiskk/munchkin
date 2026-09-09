@@ -63,8 +63,13 @@ type ambienteHTTP struct {
 // aplicacao monta a aplicação HTTP real sobre o ambiente de teste.
 func novoAmbienteHTTP(t *testing.T) ambienteHTTP {
 	t.Helper()
-	a := novoAmbienteExtrato(t)
-	return ambienteHTTP{ambienteExtrato: a, doc: contrato(t)}
+	return ambienteHTTP{ambienteExtrato: novoAmbienteExtrato(t), doc: contrato(t)}
+}
+
+// novoAmbienteHTTPCom monta a aplicação HTTP sobre um banco escolhido.
+func novoAmbienteHTTPCom(t *testing.T, dbCfg config.DB) ambienteHTTP {
+	t.Helper()
+	return ambienteHTTP{ambienteExtrato: novoAmbienteExtratoSobre(t, dbCfg), doc: contrato(t)}
 }
 
 // chamar executa uma requisição contra a aplicação real e devolve a resposta.
