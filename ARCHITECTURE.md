@@ -499,11 +499,13 @@ apagaria a diferença.
 
 ## 9. Inbox e outbox
 
-**Outbox.** Os eventos entram na tabela de outbox **dentro** da transação que os
-originou. Publicar é trabalho de um worker separado, depois do commit. Nenhum
-caminho de código chama SQS antes do `COMMIT`.
+**Outbox — gravação.** Os eventos entram na tabela de outbox **dentro** da
+transação que os originou. Publicar é trabalho de um worker separado, depois do
+commit. Nenhum caminho de código chama SQS antes do `COMMIT` — hoje nenhum
+caminho de código chama SQS.
 
-O worker reivindica registros com `FOR UPDATE SKIP LOCKED` e lease
+**Outbox — publicação (planejado).** O worker reivindica registros com
+`FOR UPDATE SKIP LOCKED` e lease
 (`locked_by`, `locked_until`), o que dá três propriedades ao mesmo tempo:
 vários publishers coexistem sem se bloquear, um publisher que morre tem seu
 trabalho reassumido quando a lease expira, e nada exige instância única.
@@ -513,7 +515,7 @@ at-least-once por construção. O `eventId` é preservado, e vai como identifica
 de deduplicação da mensagem, de modo que o consumidor recebe o mesmo evento uma
 vez só.
 
-**Inbox.** Na entrada por SQS, o registro de inbox — identidade da mensagem, do
+**Inbox (planejado).** Na entrada por SQS, o registro de inbox — identidade da mensagem, do
 consumidor e o hash — compartilha a transação das mudanças de domínio, do ledger
 e dos eventos. A mensagem só é removida da fila **depois** do commit. Uma
 interrupção entre o commit e a remoção causa reentrega, e a reentrega encontra o
@@ -522,7 +524,7 @@ registro de inbox já concluído: remove a mensagem sem reprocessar.
 Reentrega com hash divergente para a mesma identidade de mensagem é tratada como
 mensagem inválida, não como atualização.
 
-### 9.1 Eventos publicados
+### 9.1 Eventos gravados na outbox
 
 Quatro eventos, cada um com tipo e versão declarados pelo próprio conteúdo — o
 chamador não escolhe nenhum dos dois, então não existe a possibilidade de
@@ -767,6 +769,9 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 01 a 16 da tabela do `README.md` ainda não foram implementadas.
+- As etapas 10 a 16 da tabela do `README.md` ainda não foram implementadas.
+  Em particular: os eventos são **gravados** na outbox dentro da transação, mas
+  ainda não há worker que os publique, nem consumo por SQS. O §9 marca o que é
+  desenho e o que é código.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.
