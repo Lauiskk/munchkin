@@ -79,7 +79,7 @@ func novoAmbienteConsumo(t *testing.T) ambienteConsumo {
 		cliente:          cliente,
 		// Espera zero: o long polling existe para não varrer em vazio em
 		// produção; num teste ele só somaria vinte segundos por caso.
-		consumer: adaptersqs.NewConsumer(cliente, handler,
+		consumer: adaptersqs.NewConsumer(cliente, handler, a.metricas,
 			slog.New(slog.NewTextHandler(io.Discard, nil)), 10, 0),
 	}
 }

@@ -49,19 +49,21 @@ func novoAmbienteReversao(t *testing.T) ambienteReversao {
 	t.Helper()
 	a := novoAmbiente(t)
 	rel := &relogioMovel{agora: agoraFixo}
+	metricas := &registroDeMetricas{}
 	transacoes := postgres.NewTransactionRepository(a.db)
 	carteiras := postgres.NewWalletRepository(a.db)
 	proc := appwagering.NewProcessor(a.db, carteiras, transacoes,
-		postgres.NewLedgerRepository(a.db), postgres.NewOutboxRepository(a.db), rel)
+		postgres.NewLedgerRepository(a.db), postgres.NewOutboxRepository(a.db), rel, metricas)
 
 	return ambienteReversao{
 		ambienteOperacao: ambienteOperacao{
 			ambiente:  a,
 			processor: proc,
 			querier:   appwagering.NewQuerier(transacoes),
+			metricas:  metricas,
 		},
 		resolver: appwagering.NewResolver(a.db, transacoes, carteiras, proc,
-			slog.New(slog.NewTextHandler(io.Discard, nil)), rel),
+			slog.New(slog.NewTextHandler(io.Discard, nil)), rel, metricas),
 		relogio: rel,
 	}
 }

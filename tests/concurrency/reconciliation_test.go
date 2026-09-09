@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
+	"github.com/Lauiskk/munchkin/internal/app"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wagering"
 )
@@ -33,7 +34,7 @@ func TestReconciliacaoNaoAcusaDivergenciaSobMovimentacao(t *testing.T) {
 	c := novoCenario(t)
 	w, p := c.abrirCarteira(t, "1000.00")
 
-	reconciler := appwallet.NewReconciler(postgres.NewWalletRepository(c.db),
+	reconciler := appwallet.NewReconciler(postgres.NewWalletRepository(c.db), app.NopMetrics{},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 
 	largada := make(chan struct{})

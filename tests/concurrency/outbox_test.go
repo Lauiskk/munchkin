@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/app/outbox"
 )
 
@@ -88,7 +89,7 @@ func TestDoisPublicadoresNaoEnviamOMesmoEventoDuasVezes(t *testing.T) {
 	publicadores := make([]*outbox.Dispatcher, concorrentes)
 	for i := range publicadores {
 		publicadores[i] = outbox.NewDispatcher(
-			postgres.NewOutboxRepository(c.db), envio,
+			postgres.NewOutboxRepository(c.db), envio, app.NopMetrics{},
 			slog.New(slog.NewJSONHandler(&diario, nil)),
 			"instancia-"+string(rune('a'+i)), 50, 30*time.Second)
 	}

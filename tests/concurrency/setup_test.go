@@ -21,6 +21,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
+	"github.com/Lauiskk/munchkin/internal/app"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/config"
@@ -126,7 +127,7 @@ func novoCenario(t *testing.T) cenario {
 	return cenario{
 		db:        db,
 		opener:    appwallet.NewOpener(db, wallets, transacoes, entradas, outbox, relogio{}),
-		processor: appwagering.NewProcessor(db, wallets, transacoes, entradas, outbox, relogio{}),
+		processor: appwagering.NewProcessor(db, wallets, transacoes, entradas, outbox, relogio{}, app.NopMetrics{}),
 		ctx:       context.Background(),
 	}
 }

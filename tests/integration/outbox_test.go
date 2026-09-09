@@ -81,7 +81,7 @@ func novoAmbienteOutbox(t *testing.T) ambienteOutbox {
 		ambienteOperacao: a,
 		repo:             repo,
 		publicador:       pub,
-		dispatcher: outbox.NewDispatcher(repo, pub,
+		dispatcher: outbox.NewDispatcher(repo, pub, a.metricas,
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 			"instancia-de-teste", 50, time.Minute),
 	}
@@ -177,7 +177,7 @@ func TestQuedaEntrePublicarEConfirmarRepublicaComOMesmoEventID(t *testing.T) {
 	a.carteira(t, "100.00")
 
 	quebrado := &repoQueFalhaAoConfirmar{Repository: a.repo, falhar: true}
-	caido := outbox.NewDispatcher(quebrado, a.publicador,
+	caido := outbox.NewDispatcher(quebrado, a.publicador, a.metricas,
 		slog.New(slog.NewTextHandler(io.Discard, nil)), "instancia-que-caiu", 50, time.Minute)
 
 	publicados, err := caido.RunOnce(a.ctx)

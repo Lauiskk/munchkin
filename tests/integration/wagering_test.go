@@ -22,19 +22,22 @@ type ambienteOperacao struct {
 	ambiente
 	processor *appwagering.Processor
 	querier   *appwagering.Querier
+	metricas  *registroDeMetricas
 }
 
 func novoAmbienteOperacao(t *testing.T) ambienteOperacao {
 	t.Helper()
 	a := novoAmbiente(t)
 	transacoes := postgres.NewTransactionRepository(a.db)
+	metricas := &registroDeMetricas{}
 	return ambienteOperacao{
 		ambiente: a,
 		processor: appwagering.NewProcessor(a.db,
 			postgres.NewWalletRepository(a.db), transacoes,
 			postgres.NewLedgerRepository(a.db), postgres.NewOutboxRepository(a.db),
-			relogioFixo{t: agoraFixo}),
-		querier: appwagering.NewQuerier(transacoes),
+			relogioFixo{t: agoraFixo}, metricas),
+		querier:  appwagering.NewQuerier(transacoes),
+		metricas: metricas,
 	}
 }
 

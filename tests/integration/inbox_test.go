@@ -71,7 +71,7 @@ func TestInboxEDominioCommitamJuntosOuNaoCommitam(t *testing.T) {
 		postgres.NewWalletRepository(a.db), postgres.NewTransactionRepository(a.db),
 		postgres.NewLedgerRepository(a.db),
 		outboxQueFalha{err: errors.New("outbox indisponível")},
-		relogioFixo{t: agoraFixo})
+		relogioFixo{t: agoraFixo}, a.metricas)
 	handler := inbox.NewHandler(a.db, postgres.NewInboxRepository(a.db), quebrado,
 		slog.New(slog.NewTextHandler(io.Discard, nil)), consumidorDeTeste)
 

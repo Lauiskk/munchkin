@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
+	"github.com/Lauiskk/munchkin/internal/app"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wagering"
 	domainwallet "github.com/Lauiskk/munchkin/internal/domain/wallet"
@@ -39,7 +40,7 @@ func (c cenario) novoResolver(saida io.Writer) *appwagering.Resolver {
 		postgres.NewWalletRepository(c.db),
 		c.processor,
 		slog.New(slog.NewJSONHandler(saida, nil)),
-		relogioAdiantado{d: time.Minute})
+		relogioAdiantado{d: time.Minute}, app.NopMetrics{})
 }
 
 // diario acumula o log dos workers para que o teste possa cobrá-lo.

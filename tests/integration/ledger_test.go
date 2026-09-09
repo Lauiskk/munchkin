@@ -32,6 +32,7 @@ func novoAmbienteExtrato(t *testing.T) ambienteExtrato {
 	t.Helper()
 	a := novoAmbiente(t)
 	rel := &relogioMovel{agora: agoraFixo}
+	metricas := &registroDeMetricas{}
 	transacoes := postgres.NewTransactionRepository(a.db)
 	carteiras := postgres.NewWalletRepository(a.db)
 	entradas := postgres.NewLedgerRepository(a.db)
@@ -40,11 +41,12 @@ func novoAmbienteExtrato(t *testing.T) ambienteExtrato {
 		ambienteOperacao: ambienteOperacao{
 			ambiente: a,
 			processor: appwagering.NewProcessor(a.db, carteiras, transacoes, entradas,
-				postgres.NewOutboxRepository(a.db), rel),
-			querier: appwagering.NewQuerier(transacoes),
+				postgres.NewOutboxRepository(a.db), rel, metricas),
+			querier:  appwagering.NewQuerier(transacoes),
+			metricas: metricas,
 		},
 		statement: appwallet.NewStatement(carteiras, entradas),
-		reconciler: appwallet.NewReconciler(carteiras,
+		reconciler: appwallet.NewReconciler(carteiras, metricas,
 			slog.New(slog.NewTextHandler(io.Discard, nil))),
 		relogio: rel,
 	}
