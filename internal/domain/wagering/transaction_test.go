@@ -358,3 +358,46 @@ func TestOrigemDevolvidaEhCopia(t *testing.T) {
 	assert.Equal(t, wagering.ProviderID("provider-a"), tx.Origin().ProviderID,
 		"alterar a cópia não pode alterar o agregado")
 }
+
+// A reidratação valida o que vem do banco. O CHECK do schema cobre tipo e
+// estado; o código de falha não tem CHECK, e um valor desconhecido devolvido ao
+// provedor quebraria a integração dele sem erro nenhum do nosso lado.
+func TestReidratacaoRecusaEstadoPersistidoInvalido(t *testing.T) {
+	tid, wid, pid := partes(t)
+	base := wagering.State{
+		ID: tid, Kind: wagering.Bet, Status: wagering.Pending,
+		WalletID: wid, PlayerID: pid, Amount: brl(t, "25.00"),
+		CreatedAt: agora, UpdatedAt: agora,
+	}
+
+	t.Run("tipo desconhecido", func(t *testing.T) {
+		s := base
+		s.Kind = "TRANSFER"
+		_, err := wagering.Rehydrate(s)
+		assert.ErrorIs(t, err, wagering.ErrInvalidKind)
+	})
+
+	t.Run("estado desconhecido", func(t *testing.T) {
+		s := base
+		s.Status = "EM_ANALISE"
+		_, err := wagering.Rehydrate(s)
+		assert.ErrorIs(t, err, wagering.ErrInvalidStatus)
+	})
+
+	t.Run("código de falha desconhecido", func(t *testing.T) {
+		s := base
+		s.Status = wagering.Rejected
+		s.FailureCode = "MOTIVO_INVENTADO"
+		_, err := wagering.Rehydrate(s)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "código de falha desconhecido")
+	})
+
+	t.Run("código de falha conhecido é aceito", func(t *testing.T) {
+		s := base
+		s.Status = wagering.Rejected
+		s.FailureCode = wagering.FailureInsufficientFunds
+		_, err := wagering.Rehydrate(s)
+		assert.NoError(t, err)
+	})
+}

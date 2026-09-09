@@ -186,11 +186,20 @@ func Rehydrate(s State) (*Transaction, error) {
 	if s.ID.IsZero() {
 		return nil, fmt.Errorf("%w: identificador de transação ausente", ErrInvalidID)
 	}
-	if _, ok := kindsValidos[s.Kind]; !ok {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidKind, s.Kind)
+	// A validação usa os mesmos parsers da entrada externa. O estado veio do
+	// banco, que tem CHECK sobre tipo e estado — mas o código de falha não tem,
+	// e um código desconhecido devolvido ao provedor quebraria a integração
+	// dele sem nenhum erro do nosso lado.
+	if _, err := ParseKind(string(s.Kind)); err != nil {
+		return nil, err
 	}
-	if _, ok := statusValidos[s.Status]; !ok {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidStatus, s.Status)
+	if _, err := ParseStatus(string(s.Status)); err != nil {
+		return nil, err
+	}
+	if s.FailureCode != "" {
+		if _, err := ParseFailureCode(string(s.FailureCode)); err != nil {
+			return nil, err
+		}
 	}
 	if !s.Amount.IsValid() {
 		return nil, fmt.Errorf("%w: valor ausente", money.ErrUninitialized)

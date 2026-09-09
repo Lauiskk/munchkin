@@ -72,9 +72,6 @@ func (k Kind) IsReversal() bool { return k == Refund || k == Rollback }
 // saiu na aposta. Exigir zero impede que uma perda debite de novo.
 func (k Kind) RequiresZeroAmount() bool { return k == Loss }
 
-// MovesBalance informa se o tipo altera o saldo quando processado.
-func (k Kind) MovesBalance() bool { return k != Loss }
-
 func (k Kind) String() string { return string(k) }
 
 // Status é o estado da transação.
