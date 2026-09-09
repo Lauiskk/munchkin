@@ -26,6 +26,7 @@ type Config struct {
 	App  App
 	HTTP HTTP
 	Log  Log
+	Auth Auth
 }
 
 // App identifica o ambiente de execução.
@@ -54,6 +55,27 @@ type HTTP struct {
 
 // Addr devolve o endereço de escuta.
 func (h HTTP) Addr() string { return fmt.Sprintf(":%d", h.Port) }
+
+// Auth reúne os parâmetros de validação de token.
+type Auth struct {
+	// Issuer é o valor esperado na claim `iss`.
+	Issuer string
+	// DiscoveryURL é de onde o documento OIDC é buscado. Pode diferir do
+	// Issuer: dentro da rede do compose a aplicação alcança o IdP por um
+	// endereço interno, enquanto o token continua sendo emitido com o
+	// endereço público.
+	DiscoveryURL string
+	// Audience é o valor esperado na claim `aud`.
+	Audience string
+	// JWKSRefreshInterval é o período do ticker de atualização das chaves.
+	JWKSRefreshInterval time.Duration
+	// JWKSMinRefreshInterval limita a frequência da atualização forçada por
+	// `kid` desconhecido, para que tokens forjados não virem enxurrada de
+	// requisições ao IdP.
+	JWKSMinRefreshInterval time.Duration
+	// HTTPTimeout limita cada chamada ao IdP.
+	HTTPTimeout time.Duration
+}
 
 // Log reúne os parâmetros de registro.
 type Log struct {
@@ -92,6 +114,18 @@ func Load() (Config, error) {
 			Level:  v.enum("LOG_LEVEL", "info", "debug", "info", "warn", "error"),
 			Format: v.enum("LOG_FORMAT", LogFormatJSON, LogFormatJSON, LogFormatText),
 		},
+		Auth: Auth{
+			// Emissor e audiência são obrigatórios. Um serviço que sobe sem
+			// saber qual IdP confiar aceitaria tráfego sem conseguir validar
+			// token — e ausência de autenticação efetiva nos endpoints de
+			// negócio é eliminatória.
+			Issuer:                 v.required("AUTH_ISSUER"),
+			Audience:               v.required("AUTH_AUDIENCE"),
+			DiscoveryURL:           v.optional("AUTH_DISCOVERY_URL"),
+			JWKSRefreshInterval:    v.duration("AUTH_JWKS_REFRESH_INTERVAL", 15*time.Minute),
+			JWKSMinRefreshInterval: v.duration("AUTH_JWKS_MIN_REFRESH_INTERVAL", time.Minute),
+			HTTPTimeout:            v.duration("AUTH_HTTP_TIMEOUT", 5*time.Second),
+		},
 	}
 
 	// O prazo de uma requisição precisa caber na janela de escrita, senão o
@@ -123,6 +157,20 @@ func (v *validator) err() error {
 	}
 	return fmt.Errorf("%w:\n  - %s", ErrInvalid,
 		strings.Join(v.problems, "\n  - "))
+}
+
+// required lê uma variável obrigatória.
+func (v *validator) required(key string) string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		v.fail("%s: obrigatória e não definida", key)
+	}
+	return raw
+}
+
+// optional lê uma variável que pode estar ausente.
+func (v *validator) optional(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
 }
 
 // enum lê uma variável restrita a um conjunto de valores.
