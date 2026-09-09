@@ -31,6 +31,7 @@ type Config struct {
 	Auth   Auth
 	DB     DB
 	Worker Worker
+	AWS    AWS
 }
 
 // App identifica o ambiente de execução.
@@ -68,6 +69,39 @@ type Worker struct {
 	// resolvida rápido, longo o bastante para não transformar a fila vazia num
 	// laço de consultas.
 	ReferenceInterval time.Duration
+
+	// OutboxInterval é a frequência da varredura da outbox.
+	OutboxInterval time.Duration
+
+	// OutboxBatch limita quantos eventos uma rodada reivindica.
+	//
+	// Lote grande reduz idas ao banco e aumenta o tempo que um lease fica
+	// preso se o processo morrer no meio; lote pequeno faz o contrário. O
+	// padrão é conservador de propósito — atraso é recuperável, lease preso
+	// atrasa todo mundo.
+	OutboxBatch int
+
+	// OutboxLease é por quanto tempo uma instância detém um evento
+	// reivindicado.
+	//
+	// Precisa ser maior que o tempo de uma publicação, com folga, e menor que
+	// o que se aceita esperar quando uma instância morre segurando o registro.
+	OutboxLease time.Duration
+}
+
+// AWS reúne o acesso ao SQS.
+type AWS struct {
+	Region string
+	// Endpoint aponta para o LocalStack em desenvolvimento. Vazio em produção,
+	// onde o SDK resolve o endereço real do serviço.
+	Endpoint        string
+	AccessKeyID     Secret
+	SecretAccessKey Secret
+
+	// EventsQueueURL é o destino dos eventos de saída.
+	EventsQueueURL string
+	// TransactionsQueueURL é a fila de entrada consumida a partir do CP-11.
+	TransactionsQueueURL string
 }
 
 // DB reúne os parâmetros de conexão com o PostgreSQL.
@@ -194,6 +228,17 @@ func Load() (Config, error) {
 		DB: loadDB(&v),
 		Worker: Worker{
 			ReferenceInterval: v.duration("WORKER_REFERENCE_INTERVAL", 5*time.Second),
+			OutboxInterval:    v.duration("WORKER_OUTBOX_INTERVAL", 2*time.Second),
+			OutboxBatch:       v.positiveInt("WORKER_OUTBOX_BATCH", 50),
+			OutboxLease:       v.duration("WORKER_OUTBOX_LEASE", 30*time.Second),
+		},
+		AWS: AWS{
+			Region:               v.required("AWS_REGION"),
+			Endpoint:             v.optional("AWS_ENDPOINT_URL"),
+			AccessKeyID:          Secret(v.required("AWS_ACCESS_KEY_ID")),
+			SecretAccessKey:      Secret(v.required("AWS_SECRET_ACCESS_KEY")),
+			EventsQueueURL:       v.required("AWS_EVENTS_QUEUE_URL"),
+			TransactionsQueueURL: v.required("AWS_TRANSACTIONS_QUEUE_URL"),
 		},
 	}
 

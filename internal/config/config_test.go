@@ -22,6 +22,11 @@ func comObrigatorios(t *testing.T) {
 	t.Setenv("DB_NAME", "munchkin")
 	t.Setenv("DB_USER", "munchkin_app")
 	t.Setenv("DB_PASSWORD", "local-only-app")
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("AWS_ACCESS_KEY_ID", "local-only-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "local-only-secret-key")
+	t.Setenv("AWS_EVENTS_QUEUE_URL", "http://localstack:4566/000000000000/wager-events.fifo")
+	t.Setenv("AWS_TRANSACTIONS_QUEUE_URL", "http://localstack:4566/000000000000/wager-transactions.fifo")
 }
 
 func TestPadroesQuandoOAmbienteEstaVazio(t *testing.T) {
@@ -63,6 +68,11 @@ func TestAutenticacaoEhObrigatoria(t *testing.T) {
 	t.Setenv("DB_NAME", "munchkin")
 	t.Setenv("DB_USER", "munchkin_app")
 	t.Setenv("DB_PASSWORD", "local-only-app")
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("AWS_ACCESS_KEY_ID", "local-only-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "local-only-secret-key")
+	t.Setenv("AWS_EVENTS_QUEUE_URL", "http://localstack:4566/000000000000/wager-events.fifo")
+	t.Setenv("AWS_TRANSACTIONS_QUEUE_URL", "http://localstack:4566/000000000000/wager-transactions.fifo")
 
 	_, err := config.Load()
 
