@@ -501,10 +501,14 @@ apagaria a diferença.
 
 **Outbox — gravação.** Os eventos entram na tabela de outbox **dentro** da
 transação que os originou. Publicar é trabalho de um worker separado, depois do
-commit. Nenhum caminho de código chama SQS antes do `COMMIT` — hoje nenhum
-caminho de código chama SQS.
+commit.
 
-**Outbox — publicação (planejado).** O worker reivindica registros com
+Que nenhum caminho de código publique antes do `COMMIT` não depende de
+disciplina: os pacotes que abrem a transação financeira não enxergam o
+publicador, e um gate de CI recusa o build se passarem a enxergar. Gravar na
+outbox continua permitido — é o que precisa acontecer dentro da transação.
+
+**Outbox — publicação.** O worker reivindica registros com
 `FOR UPDATE SKIP LOCKED` e lease
 (`locked_by`, `locked_until`), o que dá três propriedades ao mesmo tempo:
 vários publishers coexistem sem se bloquear, um publisher que morre tem seu
@@ -514,6 +518,32 @@ Interrupção entre publicar e confirmar resulta em republicação — é
 at-least-once por construção. O `eventId` é preservado, e vai como identificador
 de deduplicação da mensagem, de modo que o consumidor recebe o mesmo evento uma
 vez só.
+
+Os dois mecanismos da reivindicação fazem coisas diferentes, e a distinção foi
+verificada por mutação: **o filtro de lease é o que garante** que ninguém
+publique o que já é de outro — removê-lo faz dois publicadores enviarem tudo em
+duplicata; **o `SKIP LOCKED` é desempenho**, faz quem perde a disputa seguir
+adiante em vez de esperar o lock, e removê-lo mantém o resultado correto, só
+mais lento.
+
+Todos os prazos da reivindicação — validade do lease e próxima tentativa — são
+calculados com o relógio do **banco**, nunca com o do processo. É o único
+relógio que todas as instâncias compartilham: com o relógio local, uma máquina
+adiantada seguraria registros além do combinado e uma atrasada perderia o
+próprio trabalho para as outras.
+
+Publicar é uma chamada de rede, e ela acontece **fora** de qualquer transação
+SQL. Reivindicar, publicar e confirmar são três operações independentes, cada
+uma atômica em si. Segurar uma transação aberta durante a chamada de rede
+prenderia conexão do pool pelo tempo do transporte e transformaria uma
+lentidão do SQS em indisponibilidade do banco.
+
+**Fila de saída.** `wager-events.fifo`, com `MessageGroupId = aggregateId` e
+`MessageDeduplicationId = eventId`. O grupo é a carteira: eventos de uma mesma
+carteira chegam em ordem, e carteiras distintas não se serializam entre si.
+`ContentBasedDeduplication` fica desligado de propósito — ligado, o SQS
+deduplicaria por hash do corpo, e dois eventos legítimos de conteúdo idêntico
+dentro da janela de cinco minutos seriam engolidos.
 
 **Inbox (planejado).** Na entrada por SQS, o registro de inbox — identidade da mensagem, do
 consumidor e o hash — compartilha a transação das mudanças de domínio, do ledger
@@ -769,9 +799,8 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 10 a 16 da tabela do `README.md` ainda não foram implementadas.
-  Em particular: os eventos são **gravados** na outbox dentro da transação, mas
-  ainda não há worker que os publique, nem consumo por SQS. O §9 marca o que é
-  desenho e o que é código.
+- As etapas 11 a 16 da tabela do `README.md` ainda não foram implementadas.
+  Em particular: os eventos são gravados e publicados, mas ainda não há consumo
+  por SQS nem inbox. O §9 marca o que é desenho e o que é código.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.

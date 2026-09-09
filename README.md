@@ -27,7 +27,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 07 | Abertura de carteira | ✅ |
 | 08 | Operação financeira e idempotência | ✅ |
 | 09 | Reversões e referências pendentes | ✅ |
-| 10 | Outbox e publicação | ⬜ |
+| 10 | Outbox e publicação | ✅ |
 | 11 | Consumidor SQS e inbox | ⬜ |
 | 12 | Consultas e reconciliação | ⬜ |
 | 13 | Observabilidade | ⬜ |
@@ -63,9 +63,10 @@ cp .env.example .env
 docker compose up --build      # ou: make up
 ```
 
-Sobe o Keycloak com o realm já importado e a aplicação. A imagem da aplicação é
-distroless, roda como usuário não privilegiado, com sistema de arquivos somente
-leitura e sem capacidade nenhuma.
+Sobe o Keycloak com o realm já importado, o PostgreSQL migrado, o LocalStack com
+as filas provisionadas e a aplicação. A imagem da aplicação é distroless, roda
+como usuário não privilegiado, com sistema de arquivos somente leitura e sem
+capacidade nenhuma.
 
 Para desenvolver com a aplicação fora do container:
 
@@ -188,8 +189,8 @@ dispara não prova nada.
 | Prometheus | 9091 |
 | Grafana | 3000 |
 
-Ajustáveis pelo `.env`. LocalStack, Prometheus e Grafana entram nas próximas
-etapas — hoje o compose sobe Keycloak, PostgreSQL e a aplicação.
+Ajustáveis pelo `.env`. Prometheus e Grafana entram nas próximas etapas — hoje o
+compose sobe Keycloak, PostgreSQL, LocalStack e a aplicação.
 
 ## Exemplos de chamada
 
@@ -329,6 +330,62 @@ curl -s localhost:8080/providers/provider-a/wagering/transactions/transaction-12
 
 Transação de outro provedor responde **404**, não 403 — um 403 confirmaria que
 ela existe.
+
+## Eventos e filas
+
+Três filas FIFO, provisionadas pelo LocalStack na subida:
+
+| Fila | Papel |
+|---|---|
+| `wager-events.fifo` | Destino dos eventos de saída publicados pela outbox |
+| `wager-transactions.fifo` | Entrada de operações por mensageria (etapa 11) |
+| `wager-transactions-dlq.fifo` | Destino do redrive da anterior, após 5 recebimentos |
+
+```sh
+docker compose exec localstack awslocal sqs list-queues
+docker compose exec localstack awslocal sqs receive-message \
+  --queue-url http://localstack:4566/000000000000/wager-events.fifo \
+  --max-number-of-messages 10 --visibility-timeout 0
+```
+
+**Como o evento sai.** A transação de negócio grava o evento na tabela
+`outbox_events`, no mesmo commit do saldo e do ledger. Nada publica ali. Um
+worker separado, presente em **todas** as instâncias, reivindica os pendentes,
+envia e confirma. Uma interrupção entre enviar e confirmar faz o evento sair de
+novo — com o mesmo `eventId`, que é o identificador de deduplicação da fila.
+
+**Contrato de roteamento** de `wager-events.fifo`:
+
+| Atributo | Valor |
+|---|---|
+| `MessageGroupId` | `aggregateId`, isto é, a carteira — ordena os eventos dela sem serializar carteiras distintas |
+| `MessageDeduplicationId` | `eventId` — republicação não vira evento novo |
+
+**Envelope**, comum aos quatro eventos:
+
+```json
+{
+  "eventId":       "01a086af-04f1-7755-8622-4daf3be069aa",
+  "eventType":     "WalletBalanceChanged",
+  "aggregateType": "wallet",
+  "aggregateId":   "01a086af-04ef-717b-919a-dfebbebe1c87",
+  "correlationId": "01a086af-04ee-7a55-8ab1-1f2a6b9f4c31",
+  "causationId":   null,
+  "occurredAt":    "2026-09-09T17:19:09.197Z",
+  "version":       1,
+  "data":          { }
+}
+```
+
+| Evento | Gatilho |
+|---|---|
+| `WagerTransactionProcessed` | Conclusão bem-sucedida, inclusive `LOSS` |
+| `WagerTransactionRejected` | Recusa definitiva por regra de negócio, com `failureCode` |
+| `WagerTransactionPendingReference` | Registro da espera por uma referência |
+| `WalletBalanceChanged` | Alteração efetiva do saldo — `LOSS` não produz este |
+
+Instantes em RFC 3339 UTC com precisão fixa de milissegundos, no envelope e
+dentro do `data`. Dinheiro sempre em string decimal.
 
 ## Migrations
 
