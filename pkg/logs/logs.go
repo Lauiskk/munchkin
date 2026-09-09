@@ -25,6 +25,9 @@ const (
 	KeyTransactionID = "transactionId"
 	KeyWalletID      = "walletId"
 	KeyProviderID    = "providerId"
+	KeyEventID       = "eventId"
+	KeyEventType     = "eventType"
+	KeyAggregateID   = "aggregateId"
 	KeyError         = "error"
 )
 
