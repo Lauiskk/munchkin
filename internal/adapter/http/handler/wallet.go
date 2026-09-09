@@ -2,10 +2,13 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/Lauiskk/munchkin/internal/adapter/contract"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/dto"
 	"github.com/Lauiskk/munchkin/internal/app"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
@@ -15,13 +18,18 @@ import (
 
 // Wallet responde pelas rotas de carteira.
 type Wallet struct {
-	opener *appwallet.Opener
-	getter *appwallet.Getter
+	opener     *appwallet.Opener
+	getter     *appwallet.Getter
+	statement  *appwallet.Statement
+	reconciler *appwallet.Reconciler
 }
 
 // NewWallet monta o handler.
-func NewWallet(opener *appwallet.Opener, getter *appwallet.Getter) *Wallet {
-	return &Wallet{opener: opener, getter: getter}
+func NewWallet(
+	opener *appwallet.Opener, getter *appwallet.Getter,
+	statement *appwallet.Statement, reconciler *appwallet.Reconciler,
+) *Wallet {
+	return &Wallet{opener: opener, getter: getter, statement: statement, reconciler: reconciler}
 }
 
 // Open abre uma carteira.
@@ -53,13 +61,9 @@ func (h *Wallet) Open(c *fiber.Ctx) error {
 //
 //	GET /wallets/:walletId   (escopo wallets:admin)
 func (h *Wallet) Get(c *fiber.Ctx) error {
-	id, err := wallet.ParseID(c.Params("walletId"))
+	id, err := identificadorDeCarteira(c)
 	if err != nil {
-		return apperr.Validation(apperr.FieldError{
-			Field:   "walletId",
-			Message: "identificador de carteira inválido",
-			Code:    apperr.FieldCodeInvalidFormat,
-		})
+		return err
 	}
 
 	w, err := h.getter.Get(c.UserContext(), id)
@@ -94,4 +98,88 @@ func traduzirErroDeCarteira(err error) error {
 		// log, com o identificador de correlação.
 		return apperr.Internal(err)
 	}
+}
+
+// Ledger devolve uma página do extrato da carteira.
+//
+//	GET /wallets/:walletId/ledger?cursor=&limit=   (escopo wallets:admin)
+func (h *Wallet) Ledger(c *fiber.Ctx) error {
+	id, err := identificadorDeCarteira(c)
+	if err != nil {
+		return err
+	}
+
+	var campos contract.Fields
+
+	limite := appwallet.LedgerPageDefault
+	if bruto := c.Query("limit"); bruto != "" {
+		n, err := strconv.Atoi(bruto)
+		switch {
+		case err != nil:
+			campos.Add("limit", "precisa ser um número inteiro", apperr.FieldCodeInvalidFormat)
+		case n <= 0:
+			campos.Add("limit", "precisa ser positivo", apperr.FieldCodeInvalidValue)
+		case n > appwallet.LedgerPageMax:
+			campos.Add("limit",
+				fmt.Sprintf("acima do máximo de %d", appwallet.LedgerPageMax),
+				apperr.FieldCodeInvalidValue)
+		default:
+			limite = n
+		}
+	}
+
+	var depois *appwallet.Position
+	if bruto := c.Query("cursor"); bruto != "" {
+		p, err := dto.DecodeCursor(bruto)
+		if err != nil {
+			// Falha fechado. Um cursor corrompido tratado como "começar do
+			// início" devolveria a página errada em silêncio, e quem pagina
+			// não teria como perceber.
+			campos.Add("cursor", "cursor inválido", apperr.FieldCodeInvalidValue)
+		} else {
+			depois = &p
+		}
+	}
+
+	if err := campos.Err(); err != nil {
+		return err
+	}
+
+	pagina, err := h.statement.List(c.UserContext(), id, depois, limite)
+	if err != nil {
+		return traduzirErroDeCarteira(err)
+	}
+	return c.Status(http.StatusOK).JSON(dto.NewLedgerPageResponse(id, pagina))
+}
+
+// Reconcile confere o saldo contra o ledger. Não altera nada.
+//
+//	POST /wallets/:walletId/reconciliation   (escopo wallets:admin)
+//
+// É POST porque o §9 do enunciado assim define, e não porque escreva: a rota é
+// uma conferência, e a ausência de escrita tem teste.
+func (h *Wallet) Reconcile(c *fiber.Ctx) error {
+	id, err := identificadorDeCarteira(c)
+	if err != nil {
+		return err
+	}
+
+	resultado, err := h.reconciler.Run(c.UserContext(), id)
+	if err != nil {
+		return traduzirErroDeCarteira(err)
+	}
+	return c.Status(http.StatusOK).JSON(dto.NewReconciliationResponse(resultado))
+}
+
+// identificadorDeCarteira lê e valida o identificador do path.
+func identificadorDeCarteira(c *fiber.Ctx) (wallet.ID, error) {
+	id, err := wallet.ParseID(c.Params("walletId"))
+	if err != nil {
+		return wallet.ID{}, apperr.Validation(apperr.FieldError{
+			Field:   "walletId",
+			Message: "identificador de carteira inválido",
+			Code:    apperr.FieldCodeInvalidFormat,
+		})
+	}
+	return id, nil
 }

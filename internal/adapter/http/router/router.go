@@ -52,6 +52,12 @@ func Register(
 	// wagering:write recebe 403 aqui.
 	app.Post("/wallets", middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Open)
 	app.Get("/wallets/:walletId", middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Get)
+	// Extrato e reconciliação são dados da CARTEIRA, não do provedor: um
+	// integrador com wagering:read não pode ler a movimentação de um jogador.
+	app.Get("/wallets/:walletId/ledger",
+		middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Ledger)
+	app.Post("/wallets/:walletId/reconciliation",
+		middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Reconcile)
 
 	// Operações financeiras: escrita e leitura têm escopos distintos, para que
 	// um integrador que só consulta não precise de credencial que movimenta.
