@@ -16,6 +16,8 @@ var Module = fx.Module("app.wallet",
 	fx.Provide(
 		NewOpener,
 		NewGetter,
+		NewStatement,
+		NewReconciler,
 	),
 )
 
