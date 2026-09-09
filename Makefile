@@ -17,7 +17,9 @@ help:
 
 ## build: compila os binários
 build:
-	$(GO) build -o bin/api ./cmd/api
+	@if [ "$$($(GO) list ./cmd/... 2>/dev/null | wc -l)" -eq 0 ]; then \
+	  echo "· nenhum binário ainda, build ocioso"; exit 0; fi; \
+	$(GO) build -o bin/api ./cmd/api && echo "✓ bin/api"
 
 ## tidy: sincroniza go.mod e go.sum
 tidy:
@@ -25,10 +27,14 @@ tidy:
 
 ## test: testes unitários
 test:
+	@if [ "$$($(GO) list $(PKG) 2>/dev/null | wc -l)" -eq 0 ]; then \
+	  echo "· nenhum pacote Go ainda, teste ocioso"; exit 0; fi; \
 	$(GO) test $(PKG)
 
 ## test-race: testes unitários com detector de corrida
 test-race:
+	@if [ "$$($(GO) list $(PKG) 2>/dev/null | wc -l)" -eq 0 ]; then \
+	  echo "· nenhum pacote Go ainda, teste ocioso"; exit 0; fi; \
 	$(GO) test -race $(PKG)
 
 ## test-integration: testes com infraestrutura real em containers
