@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -144,7 +145,48 @@ func (k *KeySet) discover(ctx context.Context) (string, error) {
 	if doc.JWKSURI == "" {
 		return "", errors.New("documento de descoberta sem jwks_uri")
 	}
-	return doc.JWKSURI, nil
+	return k.reachableJWKSURI(doc.JWKSURI)
+}
+
+// reachableJWKSURI ajusta o endereço do JWKS ao endereço por onde a descoberta
+// foi de fato alcançada.
+//
+// O IdP monta o jwks_uri a partir do seu endereço PÚBLICO, porque é esse que
+// ele grava no `iss` do token. Dentro da rede do compose, esse endereço não
+// resolve: a aplicação alcança o IdP por um nome de serviço interno. Seguir o
+// jwks_uri publicado ao pé da letra faz a aplicação não subir — e o erro
+// aponta para o Keycloak, quando o problema é de topologia.
+//
+// A reescrita só acontece quando uma URL de descoberta interna foi configurada
+// explicitamente, e só troca esquema e host pelos dessa URL. É um
+// estreitamento para um endereço que nós mesmos definimos, nunca uma abertura
+// para um endereço que o documento remoto sugira.
+func (k *KeySet) reachableJWKSURI(published string) (string, error) {
+	defaultDiscovery := strings.TrimRight(k.issuer, "/") + discoverySuffix
+	if k.discoveryURL == defaultDiscovery {
+		return published, nil
+	}
+
+	discovery, err := url.Parse(k.discoveryURL)
+	if err != nil {
+		return "", fmt.Errorf("URL de descoberta inválida: %w", err)
+	}
+	jwks, err := url.Parse(published)
+	if err != nil {
+		return "", fmt.Errorf("jwks_uri inválido: %w", err)
+	}
+	if jwks.Scheme == discovery.Scheme && jwks.Host == discovery.Host {
+		return published, nil
+	}
+
+	adjusted := *jwks
+	adjusted.Scheme = discovery.Scheme
+	adjusted.Host = discovery.Host
+
+	k.log.Info("auth.jwks_uri_adjusted",
+		slog.String("published", published),
+		slog.String("used", adjusted.String()))
+	return adjusted.String(), nil
 }
 
 // Refresh busca o JWKS e substitui as chaves em memória.
