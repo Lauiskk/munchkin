@@ -28,6 +28,7 @@ func New(
 	cfg config.Config,
 	log *slog.Logger,
 	health *handler.Health,
+	wallets *handler.Wallet,
 	verifier middleware.TokenVerifier,
 	isPublic router.PublicPaths,
 ) *fiber.App {
@@ -62,7 +63,7 @@ func New(
 	// financeiro o mapa da API não é informação pública.
 	app.Use(middleware.Authenticate(verifier, isPublic, log))
 
-	router.Register(app, health)
+	router.Register(app, health, wallets)
 	return app
 }
 
@@ -132,6 +133,7 @@ func newHealth(p healthParams) *handler.Health {
 var Module = fx.Module("http",
 	fx.Provide(
 		newHealth,
+		handler.NewWallet,
 		router.NewPublicPaths,
 		// O verificador concreto é ligado à interface que o middleware pede.
 		// Sem esta ponte, o grafo entregaria o tipo concreto e a cadeia

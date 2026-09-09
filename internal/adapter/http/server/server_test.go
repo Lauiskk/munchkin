@@ -34,8 +34,12 @@ func newApp(t *testing.T, checks ...handler.ReadinessCheck) *fiber.App {
 		App:  config.App{Env: config.EnvTest},
 		HTTP: config.HTTP{RequestTimeout: 2 * time.Second},
 	}
+	// O handler de carteira entra sem casos de uso: estes testes exercitam a
+	// cadeia de middleware, não as rotas de carteira. E elas exigem escopo
+	// wallets:admin, que o verificador de teste não concede — uma chamada
+	// acidental para em 403, antes de alcançar o handler.
 	return server.New(cfg, log, handler.NewHealth(log, time.Second, checks...),
-		verificadorDeTeste{}, router.IsPublic)
+		handler.NewWallet(nil, nil), verificadorDeTeste{}, router.IsPublic)
 }
 
 // autenticada acrescenta uma credencial válida à requisição.

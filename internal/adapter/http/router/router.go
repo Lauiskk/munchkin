@@ -4,7 +4,9 @@ package router
 import (
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
+	"github.com/Lauiskk/munchkin/internal/adapter/http/middleware"
 )
 
 // publicPaths são as rotas que dispensam autenticação.
@@ -32,7 +34,17 @@ func IsPublic(path string) bool {
 }
 
 // Register declara as rotas no aplicativo.
-func Register(app *fiber.App, health *handler.Health) {
+//
+// O escopo exigido fica na tabela de rotas, ao lado do caminho. É o único lugar
+// onde dá para ler, de uma vez, quem pode chamar o quê — espalhado pelos
+// handlers, sempre existe um que ninguém lembra de proteger.
+func Register(app *fiber.App, health *handler.Health, wallets *handler.Wallet) {
 	app.Get("/health/live", health.Live)
 	app.Get("/health/ready", health.Ready)
+
+	// Abertura e consulta de carteira são operações internas: o §2 do enunciado
+	// restringe operações de carteira ao serviço interno, e um provedor com
+	// wagering:write recebe 403 aqui.
+	app.Post("/wallets", middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Open)
+	app.Get("/wallets/:walletId", middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Get)
 }

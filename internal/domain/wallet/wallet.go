@@ -28,6 +28,12 @@ var (
 	ErrCurrencyMismatch = errors.New("moeda da movimentação difere da carteira")
 	// ErrInvalidState indica estado persistido incoerente na reidratação.
 	ErrInvalidState = errors.New("estado de carteira inválido")
+	// ErrAlreadyExists indica que o jogador já tem carteira naquela moeda.
+	//
+	// Mora no domínio porque a regra é do domínio — "um jogador tem no máximo
+	// uma carteira por moeda". Quem a IMPÕE é o índice único no banco; quem a
+	// traduz de volta é o repositório. O caso de uso apenas propaga.
+	ErrAlreadyExists = errors.New("o jogador já possui carteira nesta moeda")
 )
 
 // Direction é o sentido de uma movimentação.
