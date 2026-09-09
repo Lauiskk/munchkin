@@ -19,7 +19,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 01 | Composição com Fx, Fiber, erros padronizados, `/health/live` | ✅ |
 | 02 | Keycloak, cache de JWKS, middleware de autenticação | ✅ |
 | 03 | Postgres, ciclo de vida, `/health/ready` | ✅ |
-| 04 | Migrations versionadas e schema com as constraints | ⬜ |
+| 04 | Migrations versionadas e schema com as constraints | ✅ |
 | 05 | `Money` | ⬜ |
 | 06 | Agregados de domínio | ⬜ |
 | 07 | Abertura de carteira | ⬜ |
@@ -189,6 +189,25 @@ dispara não prova nada.
 Ajustáveis pelo `.env`. LocalStack, Prometheus e Grafana entram nas próximas
 etapas — hoje o compose sobe Keycloak, PostgreSQL e a aplicação.
 
+## Migrations
+
+```sh
+make migrate-up          # aplica as pendentes
+make migrate-down        # reverte uma
+make migrate-status      # versão corrente e se o banco está sujo
+make migrate-down-all    # reverte todas (destrutivo)
+```
+
+Pares `.up.sql`/`.down.sql` versionados em `migrations/`, **embarcados no
+binário**: não há como o container subir com uma versão do código e outra do
+schema. O `docker compose up` aplica as migrations antes de a aplicação subir,
+num serviço próprio que recebe as credenciais do dono do schema — a aplicação
+nunca as vê.
+
+Migration já aplicada nunca é editada: corrige-se com uma nova. Se uma migração
+for interrompida no meio, o banco fica marcado como sujo e o executor recusa
+operar até que alguém confira o schema e resolva com `migrate force <versao>`.
+
 ## Banco de dados
 
 A aplicação conecta como `munchkin_app`, que **não é dono** do schema. As
@@ -196,6 +215,23 @@ migrations rodam como o dono. A separação existe porque, em PostgreSQL, o dono
 de uma tabela tem privilégio por *ownership*: revogar `UPDATE` e `DELETE` dele
 não teria efeito, e a imutabilidade do ledger imposta pelo banco deixaria de
 existir.
+
+As invariantes financeiras vivem no schema, não no código — um caminho de
+aplicação com defeito é recusado pelo banco:
+
+| Invariante | Como é imposta |
+|---|---|
+| Saldo nunca negativo | `CHECK (balance_minor >= 0)` |
+| Uma carteira por jogador e moeda | índice único `(player_id, currency)` |
+| Moeda da movimentação igual à da carteira | chave estrangeira composta `(wallet_id, currency)` |
+| Operação financeira única por provedor | índice único `(provider_id, external_transaction_id)` |
+| Chave de idempotência única por provedor | índice único `(provider_id, idempotency_key)` |
+| Um crédito inicial por carteira | índice único parcial em `kind = 'OPENING'` |
+| No máximo uma reversão bem-sucedida por referência | índice único parcial em `status='PROCESSED' AND kind IN ('REFUND','ROLLBACK')` |
+| Um lançamento por transação e carteira | índice único `(wallet_id, transaction_id)` |
+| Aritmética do lançamento fecha a conta | `CHECK` de `balance_after = balance_before ± amount` |
+| Ledger append-only | gatilho recusando `UPDATE`/`DELETE`/`TRUNCATE` **e** privilégio revogado |
+| Instantâneo do evento imutável | gatilho permitindo alterar só o controle de publicação |
 
 `GET /health/ready` reflete o estado real da dependência:
 

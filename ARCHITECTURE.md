@@ -224,6 +224,25 @@ demais para o caminho crítico.
 etapa de geração a um projeto que já tem GORM. Duas formas de falar com o banco
 bastam.
 
+### 4.2 Migrations
+
+Pares `.up.sql`/`.down.sql` versionados, **embarcados no binário** por `go:embed`.
+Embarcar em vez de montar um diretório significa que a imagem é autossuficiente:
+não há como o container subir com uma versão do código e outra do schema, que é
+uma das formas mais desagradáveis de um deploy dar errado.
+
+O executor é um subcomando do mesmo binário, mas roda como um **serviço
+separado** no ambiente, com as credenciais do dono do schema. A aplicação nunca
+as recebe — é o que mantém efetivo o `REVOKE` sobre o ledger.
+
+Migration já aplicada nunca é editada; corrige-se com uma nova. Se uma migração
+for interrompida no meio, o executor marca o banco como sujo e **recusa operar**
+até intervenção explícita: aplicar por cima de um estado que ele não sabe
+classificar é como se produz um schema meio aplicado que ninguém reproduz.
+
+A reversão completa exige confirmação por variável de ambiente. Reverter tudo
+apaga os dados, e não é a operação que alguém quer por ter digitado depressa.
+
 ## 5. Concorrência e locks
 
 A coordenação é `SELECT ... FROM wallets WHERE id = $1 FOR UPDATE`, dentro da
