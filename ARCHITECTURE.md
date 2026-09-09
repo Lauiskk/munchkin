@@ -148,21 +148,32 @@ está numa transação: ele lê do contexto o handle corrente e, na ausência,
 usa o pool. Assim a fronteira transacional fica no caso de uso, onde ela é
 legível, e não espalhada pelos repositórios.
 
-Sequência canônica, com ordem de aquisição de lock fixa — é a ordem fixa que
-impede deadlock:
+Sequência canônica. A ordem de aquisição de lock é fixa, e é ela que impede
+deadlock: toda operação toma primeiro a linha da carteira, depois a da transação.
+
+**A carteira é travada antes da reivindicação de idempotência**, e não o
+contrário. A operação referencia a carteira por chave estrangeira composta
+`(carteira, moeda)`, então uma operação para carteira inexistente — ou em moeda
+divergente — **não pode sequer ser inserida**: precisa ser recusada antes da
+tentativa. O custo é que um replay também toma o lock da carteira; a alternativa
+seria uma consulta extra no caminho de toda operação nova, que é o caminho
+quente.
 
 ```
 BEGIN
- 1. INSERT wager_transactions (PENDING) ON CONFLICT DO NOTHING RETURNING id
-      vazio → replay ou conflito de idempotência (ver §6)
- 2. SELECT ... FROM wallets WHERE id = $1 FOR UPDATE
- 3. reversões: resolve a referência (ver §8)
- 4. o domínio decide; rejeição de negócio grava REJECTED e ainda assim commita
- 5. UPDATE wallets SET balance_minor = $, version = version + 1
+ 1. SELECT ... FROM wallets WHERE id = $1 FOR UPDATE
+      inexistente → recusa de alvo, nada gravado (ver §14.6)
+ 2. valida o alvo: jogador e moeda
+      divergente → recusa de alvo, nada gravado
+ 3. INSERT wager_transactions (PENDING) ON CONFLICT DO NOTHING
+      não inseriu → replay ou conflito de idempotência (ver §6)
+ 4. reversões: resolve a referência (ver §8)
+ 5. o domínio decide; recusa de negócio grava REJECTED e ainda assim commita
+ 6. UPDATE wallets SET balance_minor = $, version = version + 1
       WHERE id = $ AND version = $      -- afeta exatamente 1 linha
- 6. INSERT wallet_ledger_entries        -- LOSS não gera lançamento
- 7. UPDATE wager_transactions (PROCESSED)
- 8. INSERT outbox_events
+ 7. INSERT wallet_ledger_entries        -- LOSS não gera lançamento
+ 8. UPDATE wager_transactions (PROCESSED | REJECTED)
+ 9. INSERT outbox_events
 COMMIT
 ```
 
@@ -347,11 +358,34 @@ Duas unicidades, ambas por provedor:
   com conteúdo diferente.
 
 O corpo é reduzido a um **hash determinístico** dos campos de negócio: JSON
-canônico com chaves ordenadas, sem espaços, valores monetários normalizados para
-a forma de escala fixa, e SHA-256. A chave de idempotência e os metadados de
-transporte ficam **fora** do cálculo — senão o hash mudaria por motivo que não é
-de negócio. HTTP e SQS calculam o mesmo hash para o mesmo conteúdo, que é o que
-torna as duas portas equivalentes.
+canônico com chaves ordenadas e SHA-256. A ordenação vem do `encoding/json`, que
+serializa mapas com as chaves ordenadas — propriedade documentada da biblioteca
+padrão. Duas requisições com os mesmos campos em ordens diferentes no corpo
+produzem o mesmo hash.
+
+O conjunto de campos é **fixo** e é contrato:
+
+```
+externalTransactionId, gameId, kind, money.amount, money.currency,
+playerId, providerId, referenceExternalTransactionId, roundId, walletId
+```
+
+A referência aparece sempre, vazia quando não se aplica. Incluí-la
+condicionalmente faria o mesmo conteúdo produzir hashes diferentes conforme o
+campo estivesse presente ou ausente no corpo — e o cliente não controla isso de
+forma confiável.
+
+O valor entra na forma canônica produzida pelo tipo, não no texto cru recebido.
+Como o tipo aceita uma grafia por valor (§3), a normalização é a própria recusa
+do que não é canônico: não existem duas grafias que cheguem ao cálculo.
+
+**Fora do hash, de propósito:** a chave de idempotência, o instante de
+recebimento, o estado, o identificador interno, o número de tentativas e o
+identificador de correlação. Todos mudam entre um envio e o reenvio da **mesma**
+operação, e incluí-los faria todo reenvio parecer conteúdo diferente.
+
+HTTP e SQS constroem o mesmo conjunto de campos, então produzem o mesmo hash
+para o mesmo negócio — é o que torna as duas portas equivalentes.
 
 Desfechos:
 

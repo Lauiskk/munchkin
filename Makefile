@@ -98,7 +98,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-fiber-ctx gate-failure-codes
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-fiber-ctx gate-failure-codes gate-hash-fields
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -186,6 +186,21 @@ gate-app-pure:
 	  echo "✗ caso de uso importa adaptador:"; echo "$$deps" | sed 's/^/    /'; exit 1; fi; \
 	echo "✓ casos de uso independentes de adaptador"
 
+## gate-hash-fields: campos do hash de idempotência iguais aos do ARCHITECTURE
+# O conjunto de campos é contrato: acrescentar um muda a identidade de TODA
+# operação já registrada. Documentação que descreve outro conjunto é pior que
+# nenhuma — é a terceira deriva de documentação neste projeto, e a segunda a
+# virar gate.
+gate-hash-fields:
+	@codigo=$$(grep -oE '"[a-zA-Z.]+":[[:space:]]+f\.' internal/domain/wagering/fingerprint.go \
+	  | grep -oE '"[a-zA-Z.]+"' | tr -d '"' | sort -u); \
+	doc=$$(sed -n '/^externalTransactionId, gameId/,/walletId$$/p' ARCHITECTURE.md \
+	  | tr ',' '\n' | tr -d ' ' | grep -v '^$$' | sort -u); \
+	if [ "$$codigo" != "$$doc" ]; then \
+	  echo "✗ os campos do hash divergem entre o código e o ARCHITECTURE:"; \
+	  diff <(echo "$$codigo") <(echo "$$doc") | sed 's/^/    /'; exit 1; fi; \
+	echo "✓ campos do hash documentados"
+
 ## gate-fiber-ctx: handlers usam c.UserContext(), nunca c.Context()
 # Exceção única, marcada com `gate:allow-fiber-ctx` na mesma linha: o middleware
 # que deriva o context.Context da aplicação precisa ler o do fasthttp uma vez.
@@ -200,4 +215,5 @@ gate-fiber-ctx:
 
 .PHONY: help fuzz up down logs ps migrate-up migrate-down migrate-down-all migrate-status build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
-        gate-domain-pure gate-app-pure gate-fiber-ctx gate-deps gate-failure-codes
+        gate-domain-pure gate-app-pure gate-fiber-ctx gate-deps gate-failure-codes \
+        gate-hash-fields
