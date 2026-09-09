@@ -27,6 +27,7 @@ func comObrigatorios(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "local-only-secret-key")
 	t.Setenv("AWS_EVENTS_QUEUE_URL", "http://localstack:4566/000000000000/wager-events.fifo")
 	t.Setenv("AWS_TRANSACTIONS_QUEUE_URL", "http://localstack:4566/000000000000/wager-transactions.fifo")
+	t.Setenv("AWS_TRANSACTIONS_DLQ_URL", "http://localstack:4566/000000000000/wager-transactions-dlq.fifo")
 }
 
 func TestPadroesQuandoOAmbienteEstaVazio(t *testing.T) {
@@ -73,6 +74,7 @@ func TestAutenticacaoEhObrigatoria(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "local-only-secret-key")
 	t.Setenv("AWS_EVENTS_QUEUE_URL", "http://localstack:4566/000000000000/wager-events.fifo")
 	t.Setenv("AWS_TRANSACTIONS_QUEUE_URL", "http://localstack:4566/000000000000/wager-transactions.fifo")
+	t.Setenv("AWS_TRANSACTIONS_DLQ_URL", "http://localstack:4566/000000000000/wager-transactions-dlq.fifo")
 
 	_, err := config.Load()
 

@@ -184,6 +184,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-only-secret-key}
       AWS_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
       AWS_TRANSACTIONS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+      AWS_TRANSACTIONS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
     ports:
       # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
       # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas

@@ -81,6 +81,14 @@ type Worker struct {
 	// atrasa todo mundo.
 	OutboxBatch int
 
+	// ConsumerInterval é a folga entre uma busca por mensagens e a seguinte.
+	// Curta de propósito: quem segura a espera é o long polling, não o ticker.
+	ConsumerInterval time.Duration
+	// ConsumerBatch é quantas mensagens uma busca traz. O SQS limita a 10.
+	ConsumerBatch int
+	// ConsumerWait é a duração do long polling.
+	ConsumerWait time.Duration
+
 	// OutboxLease é por quanto tempo uma instância detém um evento
 	// reivindicado.
 	//
@@ -100,8 +108,10 @@ type AWS struct {
 
 	// EventsQueueURL é o destino dos eventos de saída.
 	EventsQueueURL string
-	// TransactionsQueueURL é a fila de entrada consumida a partir do CP-11.
+	// TransactionsQueueURL é a fila de entrada de operações.
 	TransactionsQueueURL string
+	// TransactionsDLQURL recebe as mensagens que não têm como ser tratadas.
+	TransactionsDLQURL string
 }
 
 // DB reúne os parâmetros de conexão com o PostgreSQL.
@@ -231,6 +241,9 @@ func Load() (Config, error) {
 			OutboxInterval:    v.duration("WORKER_OUTBOX_INTERVAL", 2*time.Second),
 			OutboxBatch:       v.positiveInt("WORKER_OUTBOX_BATCH", 50),
 			OutboxLease:       v.duration("WORKER_OUTBOX_LEASE", 30*time.Second),
+			ConsumerInterval:  v.duration("WORKER_CONSUMER_INTERVAL", time.Second),
+			ConsumerBatch:     v.positiveInt("WORKER_CONSUMER_BATCH", 10),
+			ConsumerWait:      v.duration("WORKER_CONSUMER_WAIT", 20*time.Second),
 		},
 		AWS: AWS{
 			Region:               v.required("AWS_REGION"),
@@ -239,6 +252,7 @@ func Load() (Config, error) {
 			SecretAccessKey:      Secret(v.required("AWS_SECRET_ACCESS_KEY")),
 			EventsQueueURL:       v.required("AWS_EVENTS_QUEUE_URL"),
 			TransactionsQueueURL: v.required("AWS_TRANSACTIONS_QUEUE_URL"),
+			TransactionsDLQURL:   v.required("AWS_TRANSACTIONS_DLQ_URL"),
 		},
 	}
 
