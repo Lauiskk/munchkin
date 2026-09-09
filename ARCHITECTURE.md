@@ -842,8 +842,8 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 14 a 16 da tabela do `README.md` ainda não foram implementadas:
-  documentação de API (Swagger) e as suítes finais de integração e recuperação.
+- As etapas 15 e 16 da tabela do `README.md` ainda não foram implementadas: as
+  suítes finais de integração e recuperação.
 - **Grafana, Loki, dashboards e tracing OpenTelemetry não foram feitos.** O §12
   os trata como diferencial opcional, e o núcleo ainda tem etapas de verificação
   pela frente. Ficam declarados como não feitos, e não meio feitos.
@@ -855,6 +855,9 @@ Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado 
 - **A suíte de integração ainda exige o Keycloak no ar.** PostgreSQL e LocalStack
   sobem e descem sozinhos via `testcontainers`; o IdP é a última dependência
   manual, e ela some na etapa 15.
+- **A prosa do contrato de API pode envelhecer sem que nada quebre.** O gate e a
+  validação cobrem rotas, códigos de falha e formas de resposta; descrições em
+  texto não. É a mesma limitação do `README.md`, com o mesmo remédio.
 - **`tests/recovery/` está vazia.** Os cenários são da etapa 16. O alvo
   `make test-recovery` termina bem informando isso, em vez de falhar — um
   comando documentado que falha ensina que vermelho ali é normal.

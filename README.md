@@ -31,7 +31,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 11 | Consumidor SQS e inbox | ✅ |
 | 12 | Consultas e reconciliação | ✅ |
 | 13 | Observabilidade | ✅ |
-| 14 | Documentação de API (Swagger) | ⬜ |
+| 14 | Documentação de API (OpenAPI) | ✅ |
 | 15 | Testes de integração com infraestrutura real | ⬜ |
 | 16 | Concorrência e recuperação | ⬜ |
 
@@ -210,7 +210,7 @@ dispara não prova nada.
 | Postgres | 5440 |
 | Keycloak | 8180 |
 | LocalStack | 4576 |
-| Métricas da aplicação | 9092 |
+| Métricas e documentação | 9092 |
 | Prometheus | 9091 |
 | Grafana | 3000 |
 
@@ -517,6 +517,33 @@ O registro da inbox e o efeito financeiro são gravados **no mesmo commit**, e a
 mensagem só é removida depois dele. Uma interrupção entre o commit e a remoção
 causa reentrega, e a reentrega encontra a inbox concluída: remove sem
 reprocessar.
+
+## Contrato da API
+
+```sh
+docker compose up -d
+open http://localhost:9092/docs          # interface navegável
+curl -s localhost:9092/openapi.yaml      # o documento
+```
+
+O contrato está em `api/openapi.yaml`, em OpenAPI 3.0, e é **embarcado no
+binário** — não há como servir uma versão e versionar outra. Ele descreve as
+nove rotas, os corpos de erro, os doze `failureCode` e os escopos exigidos por
+rota.
+
+Fica no mesmo listener das métricas, separado da porta de negócio: o contrato
+revela o mapa da API, e num ambiente real essa porta não sai da rede interna.
+
+**Ele não pode divergir do código, e isso não depende de disciplina:**
+
+- `gate-openapi-sync` compara as rotas do roteador com as do documento, nos dois
+  sentidos, e os códigos de falha do documento com o catálogo do domínio.
+- A suíte de integração levanta a aplicação HTTP inteira e **valida cada
+  resposta real** contra o esquema declarado para aquela rota, método e status.
+  Um campo renomeado ou um formato que mude quebra o teste.
+
+Os cinco cenários que o §9 exige distinguíveis estão na rota de operação
+financeira, com uma tabela dizendo como reconhecer cada um.
 
 ## Observabilidade
 
