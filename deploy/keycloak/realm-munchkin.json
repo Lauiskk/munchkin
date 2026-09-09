@@ -1,0 +1,177 @@
+{
+  "realm": "munchkin",
+  "displayName": "Munchkin (ambiente local)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 600,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "failureFactor": 10,
+
+  "clientScopes": [
+    {
+      "name": "munchkin-audience",
+      "description": "Injeta a audiencia da API no access token",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "munchkin-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "munchkin-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wagering:write",
+      "description": "Enviar operacoes financeiras do proprio provedor",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "wagering:read",
+      "description": "Consultar transacoes do proprio provedor",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "wallets:admin",
+      "description": "Abertura interna de carteira",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    }
+  ],
+
+  "clients": [
+    {
+      "clientId": "provider-a",
+      "name": "Provedor A",
+      "description": "Provedor de jogos. Segredo local, sem valor fora deste compose.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "local-only-provider-a",
+      "defaultClientScopes": ["munchkin-audience", "wagering:write", "wagering:read"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "provider-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "provider_id",
+            "claim.value": "provider-a",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "provider-b",
+      "name": "Provedor B",
+      "description": "Segundo provedor. Existe para provar isolamento entre provedores.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "local-only-provider-b",
+      "defaultClientScopes": ["munchkin-audience", "wagering:write", "wagering:read"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "provider-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "provider_id",
+            "claim.value": "provider-b",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "wallet-admin",
+      "name": "Servico interno de carteiras",
+      "description": "Abertura interna de carteira. Nao possui provider_id: nao e um provedor.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "local-only-wallet-admin",
+      "defaultClientScopes": ["munchkin-audience", "wallets:admin"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "provider-c-sem-escopo",
+      "name": "Provedor sem escopo",
+      "description": "Credencial valida e sem permissao. Existe para provar que autenticado nao e autorizado.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "local-only-provider-c",
+      "defaultClientScopes": ["munchkin-audience"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "provider-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "provider_id",
+            "claim.value": "provider-c",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}

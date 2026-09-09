@@ -1,0 +1,53 @@
+# Ambiente local do Munchkin.
+#
+# `docker compose up --build` sobe tudo que a aplicação precisa. Os serviços de
+# observabilidade ficam no profile `observability` para que o ambiente padrão
+# continue leve — quem avalia não deveria precisar de uma máquina grande.
+#
+# As portas evitam as faixas usuais (5432, 8080 do Keycloak, 4566) porque é
+# comum já haver outro stack ocupando-as na máquina de quem for rodar.
+
+name: munchkin
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    container_name: munchkin_keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HTTP_PORT: "8080"
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      # Emissor fixo, independente de por onde o Keycloak for alcançado. Sem
+      # isto, o iss do token muda conforme o cliente use 127.0.0.1, localhost
+      # ou o nome do serviço na rede do compose — e a validação de emissor
+      # passaria a falhar dependendo de quem pede o token.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}
+    volumes:
+      # O realm é importado a cada subida, então o ambiente é sempre o mesmo —
+      # é o que torna a reprodução a partir de um checkout limpo confiável.
+      - ./deploy/keycloak/realm-munchkin.json:/opt/keycloak/data/import/realm-munchkin.json:ro
+    ports:
+      # Preso ao loopback: um IdP de desenvolvimento não deve ficar exposto na rede.
+      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # As imagens recentes do Keycloak não trazem curl nem wget. A sonda usa o
+      # /dev/tcp do próprio bash, que existe na imagem.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
