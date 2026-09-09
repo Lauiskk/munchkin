@@ -29,6 +29,12 @@ const (
 )
 
 func main() {
+	// Subcomando de sonda, usado pelo HEALTHCHECK da imagem. Fica antes de
+	// tudo porque não deve carregar configuração nem montar o grafo.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthCheck())
+	}
+
 	// A configuração é carregada fora do grafo para que um ambiente inválido
 	// produza uma mensagem legível, e não um erro de construção de dependência
 	// enterrado no relatório do Fx.
