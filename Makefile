@@ -103,8 +103,12 @@ gate-private-docs:
 	echo "✓ nenhum documento de trabalho versionado"
 
 ## gate-fiber-ctx: handlers usam c.UserContext(), nunca c.Context()
+# Exceção única, marcada com `gate:allow-fiber-ctx` na mesma linha: o middleware
+# que deriva o context.Context da aplicação precisa ler o do fasthttp uma vez.
+# A isenção fica visível no código e é encontrável por grep.
 gate-fiber-ctx:
-	@hits=$$(grep -rn 'c\.Context()' internal/adapter/http --include='*.go' 2>/dev/null || true); \
+	@hits=$$(grep -rn 'c\.Context()' internal/adapter/http --include='*.go' 2>/dev/null \
+	  | grep -v 'gate:allow-fiber-ctx' || true); \
 	if [ -n "$$hits" ]; then \
 	  echo "✗ handler usando c.Context() em vez de c.UserContext():"; \
 	  echo "$$hits"; exit 1; fi; \
