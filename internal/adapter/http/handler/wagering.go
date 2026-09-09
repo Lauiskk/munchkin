@@ -101,10 +101,17 @@ func responderOperacao(c *fiber.Ctx, out appwagering.Output) error {
 		corpo.Balance = &saldo
 	}
 
-	if out.Status == wagering.Rejected {
+	switch out.Status {
+	case wagering.Rejected:
 		return c.Status(http.StatusUnprocessableEntity).JSON(corpo)
+	case wagering.PendingReference:
+		// 202: aceita, ainda não concluída. Distinguir do 200 importa — o
+		// provedor precisa saber que ainda não há desfecho, e o enunciado exige
+		// que processamento pendente seja distinguível pelo contrato.
+		return c.Status(http.StatusAccepted).JSON(corpo)
+	default:
+		return c.Status(http.StatusOK).JSON(corpo)
 	}
-	return c.Status(http.StatusOK).JSON(corpo)
 }
 
 // GetByID devolve uma operação pela identidade interna.
