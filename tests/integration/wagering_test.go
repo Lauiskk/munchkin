@@ -60,6 +60,18 @@ func operacao(t *testing.T, w domainwallet.ID, p domainwallet.PlayerID,
 	}
 }
 
+// saldo devolve o saldo atual da carteira formatado como o domínio o expõe.
+func (a ambienteOperacao) saldo(t *testing.T, w domainwallet.ID) string {
+	t.Helper()
+	var minor int64
+	require.NoError(t, a.db.Session(a.ctx).
+		Raw(`SELECT balance_minor FROM wallets WHERE id = ?`, uuid.UUID(w)).
+		Scan(&minor).Error)
+	v, err := money.New(minor, money.BRL)
+	require.NoError(t, err)
+	return v.String()
+}
+
 func (a ambienteOperacao) conta(t *testing.T, q string, args ...any) int64 {
 	t.Helper()
 	var n int64
