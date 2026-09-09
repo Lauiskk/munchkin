@@ -309,6 +309,9 @@ movimentado depois.
 | Chave reutilizada com outro conteúdo, ou operação com outra chave | 409 | `CONFLICT` |
 | Recusa de negócio | 422 | `status: REJECTED` com `failureCode` |
 | Reversão esperando a referência | 202 | `status: PENDING_REFERENCE` |
+| Dependência fora do ar | 503 | `SERVICE_UNAVAILABLE` — **retentável** |
+| Prazo da requisição excedido | 504 | `TIMEOUT` — reenvie com a mesma chave |
+| Falha inesperada | 500 | `INTERNAL_ERROR`, com `correlationId` |
 
 ### Reversões
 
@@ -548,6 +551,12 @@ revela o mapa da API, e num ambiente real essa porta não sai da rede interna.
 
 Os cinco cenários que o §9 exige distinguíveis estão na rota de operação
 financeira, com uma tabela dizendo como reconhecer cada um.
+
+Todo status que o serviço pode devolver está declarado, inclusive os que valem
+para qualquer rota — 500, 503 e 504. A distinção entre eles não é cosmética:
+**500 diz "há um defeito aqui" e não se retenta; 503 diz "tente de novo"**. Um
+banco fora do ar responde 503, e o gate exige que toda operação declare pelo
+menos o envelope de erro inesperado.
 
 ## Observabilidade
 
