@@ -21,7 +21,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 03 | Postgres, ciclo de vida, `/health/ready` | ✅ |
 | 04 | Migrations versionadas e schema com as constraints | ✅ |
 | 05 | `Money` | ✅ |
-| 06 | Agregados de domínio | ⬜ |
+| 06 | Agregados de domínio | ✅ |
 | 07 | Abertura de carteira | ⬜ |
 | 08 | Operação financeira e idempotência | ⬜ |
 | 09 | Reversões e referências pendentes | ⬜ |
