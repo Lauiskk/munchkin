@@ -51,3 +51,44 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: munchkin_api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      HTTP_PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: json
+      # O emissor é o endereço PÚBLICO, porque é ele que o Keycloak grava na
+      # claim `iss` do token. A descoberta usa o endereço INTERNO, porque é
+      # por ele que a aplicação alcança o Keycloak dentro desta rede. Confundir
+      # os dois é a causa clássica de "funciona na minha máquina e quebra no
+      # container": o token é válido, mas o emissor não confere.
+      AUTH_ISSUER: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/munchkin
+      AUTH_DISCOVERY_URL: http://keycloak:8080/realms/munchkin/.well-known/openid-configuration
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-munchkin-api}
+    ports:
+      # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
+      # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas
+      # coisas confunde quem precisa mudar só uma delas.
+      - "127.0.0.1:${API_HOST_PORT:-8080}:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # A aplicação não escreve em disco: tudo que ela produz sai no stdout.
+    # Sistema de arquivos somente leitura e sem capacidade nenhuma reduzem o
+    # que um comprometimento consegue fazer a partir daqui.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=16M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

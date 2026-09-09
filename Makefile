@@ -15,6 +15,23 @@ MONEY_PATHS := internal/domain internal/app internal/adapter/postgres internal/a
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /' | column -t -s ':'
 
+## up: sobe o ambiente local (docker compose)
+up:
+	@docker compose up -d --build
+	@echo "✓ ambiente no ar — API em http://localhost:8080, Keycloak em http://localhost:8180"
+
+## down: derruba o ambiente local
+down:
+	@docker compose down
+
+## logs: acompanha os logs do ambiente
+logs:
+	@docker compose logs -f --tail=100
+
+## ps: estado dos serviços
+ps:
+	@docker compose ps
+
 ## build: compila os binários
 build:
 	@if [ "$$($(GO) list ./cmd/... 2>/dev/null | wc -l)" -eq 0 ]; then \
@@ -127,6 +144,6 @@ gate-fiber-ctx:
 	  echo "$$hits"; exit 1; fi; \
 	echo "✓ propagação de contexto"
 
-.PHONY: help build tidy test test-race test-integration test-concurrency \
+.PHONY: help up down logs ps build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
         gate-domain-pure gate-fiber-ctx gate-deps
