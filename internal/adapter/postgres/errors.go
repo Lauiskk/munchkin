@@ -1,15 +1,22 @@
 package postgres
 
 import (
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/Lauiskk/munchkin/internal/app"
 )
 
 // Códigos SQLSTATE que nos interessam.
 const (
-	sqlstateUniqueViolation     = "23505"
+	sqlstateUniqueViolation = "23505"
+	// Conexões esgotadas: transitório, passa sozinho quando alguma é liberada.
+	sqlstateTooManyConnections  = "53300"
 	sqlstateCheckViolation      = "23514"
 	sqlstateForeignKeyViolation = "23503"
 	sqlstateRestrictViolation   = "2F004" // levantado pelos gatilhos de imutabilidade
@@ -59,7 +66,34 @@ func classify(err error) error {
 
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
+		// Não é erro do SERVIDOR: ou é da conexão, ou é do driver. O pgx sabe
+		// dizer quando a operação não chegou a ser executada e portanto pode
+		// ser repetida com segurança — que é exatamente a definição de
+		// indisponibilidade transitória.
+		//
+		// A pergunta é feita ao driver, e não comparando o texto da mensagem:
+		// texto muda entre versões e locales, e transformaria a distinção entre
+		// "tente de novo" e "há um defeito" numa dependência da língua do
+		// servidor.
+		if pgconn.SafeToRetry(err) || indisponivel(err) {
+			return fmt.Errorf("%w: %w", app.ErrUnavailable, err)
+		}
 		return err
+	}
+
+	// Classes inteiras de SQLSTATE dizem "isto é transitório", e não "isto está
+	// errado": 08 é exceção de conexão, 57 é intervenção do operador — um
+	// desligamento administrativo, uma queda, um servidor que ainda não aceita
+	// conexão. 53300 é conexões esgotadas, que passa sozinho.
+	//
+	// A classificação é pela CLASSE, e não por uma lista de códigos: a classe é
+	// o que o padrão define como categoria, e enumerar códigos deixaria de
+	// fora exatamente o que ainda não aconteceu.
+	switch {
+	case classeSQLState(pgErr.Code) == "08",
+		classeSQLState(pgErr.Code) == "57",
+		pgErr.Code == sqlstateTooManyConnections:
+		return fmt.Errorf("%w: %w", app.ErrUnavailable, err)
 	}
 
 	var kind error
@@ -112,3 +146,25 @@ const (
 	ConstraintLedgerPerTransaction = "wallet_ledger_entries_wallet_transaction_uk"
 	ConstraintInboxConsumerMessage = "inbox_messages_consumer_message_uk"
 )
+
+// indisponivel reconhece falha de rede ou de conexão com o banco.
+func indisponivel(err error) bool {
+	var connErr *pgconn.ConnectError
+	if errors.As(err, &connErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	return errors.Is(err, driver.ErrBadConn) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+// classeSQLState devolve os dois primeiros dígitos do código, que é a categoria
+// definida pelo padrão SQL.
+func classeSQLState(codigo string) string {
+	if len(codigo) < 2 {
+		return ""
+	}
+	return codigo[:2]
+}

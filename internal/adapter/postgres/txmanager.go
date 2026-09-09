@@ -47,7 +47,11 @@ func (d *Database) Within(ctx context.Context, fn func(context.Context) error) e
 
 	tx := d.pool.WithContext(ctx).Begin()
 	if tx.Error != nil {
-		return fmt.Errorf("abertura de transação: %w", tx.Error)
+		// Passa pela classificação como qualquer outro erro do banco. Sem isso,
+		// um banco fora do ar falha AQUI — antes de qualquer repositório — e o
+		// erro chegaria ao cliente como defeito da aplicação em vez de
+		// "indisponível, tente de novo".
+		return fmt.Errorf("abertura de transação: %w", classify(tx.Error))
 	}
 
 	// O pânico precisa desfazer a transação antes de subir. Sem isto, a
@@ -69,7 +73,7 @@ func (d *Database) Within(ctx context.Context, fn func(context.Context) error) e
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("confirmação da transação: %w", err)
+		return fmt.Errorf("confirmação da transação: %w", classify(err))
 	}
 	return nil
 }
