@@ -842,8 +842,9 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 15 e 16 da tabela do `README.md` ainda não foram implementadas: as
-  suítes finais de integração e recuperação.
+- A etapa 16 da tabela do `README.md` ainda não foi implementada: os cenários de
+  recuperação após interrupção e reinício, e a repetição de cenários com três
+  instâncias independentes.
 - **Grafana, Loki, dashboards e tracing OpenTelemetry não foram feitos.** O §12
   os trata como diferencial opcional, e o núcleo ainda tem etapas de verificação
   pela frente. Ficam declarados como não feitos, e não meio feitos.
@@ -852,9 +853,6 @@ Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado 
   como sintoma — se um dia subir, alguma escrita escapou do caminho travado.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.
-- **A suíte de integração ainda exige o Keycloak no ar.** PostgreSQL e LocalStack
-  sobem e descem sozinhos via `testcontainers`; o IdP é a última dependência
-  manual, e ela some na etapa 15.
 - **A prosa do contrato de API pode envelhecer sem que nada quebre.** O gate e a
   validação cobrem rotas, códigos de falha e formas de resposta; descrições em
   texto não. É a mesma limitação do `README.md`, com o mesmo remédio.

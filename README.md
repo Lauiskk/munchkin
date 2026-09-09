@@ -32,7 +32,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 12 | Consultas e reconciliação | ✅ |
 | 13 | Observabilidade | ✅ |
 | 14 | Documentação de API (OpenAPI) | ✅ |
-| 15 | Testes de integração com infraestrutura real | ⬜ |
+| 15 | Testes de integração com infraestrutura real | ✅ |
 | 16 | Concorrência e recuperação | ⬜ |
 
 ---
@@ -174,10 +174,14 @@ make test-recovery      # interrupção entre commit e remoção, publishers con
 Os três últimos rodam sob a build tag `integration`, então `go test ./...` não
 os inclui.
 
-PostgreSQL e LocalStack sobem e descem sozinhos, via `testcontainers`. O
-**Keycloak ainda não**: `make test-integration` exige que ele esteja no ar
-(`docker compose up -d keycloak`), e essa é a última dependência manual — ela
-some na etapa 15.
+**Não há passo manual.** PostgreSQL, Keycloak e LocalStack sobem e descem
+sozinhos, via `testcontainers` — basta o Docker no ar. O PostgreSQL é um por
+teste, porque o estado financeiro é o objeto sob prova; o Keycloak e o
+LocalStack são compartilhados pela suíte, com isolamento no recurso: cada teste
+cria a própria fila, e o realm é imutável durante os testes.
+
+`KEYCLOAK_BASE_URL` aponta a suíte para um IdP já de pé, se você quiser poupar o
+tempo de subida dele.
 
 `make test-concurrency` tem oito cenários: disputa 80+80 sobre 100, cinquenta
 envios paralelos da mesma aposta, carteiras distintas em paralelo, saldo contra
