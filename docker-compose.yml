@@ -185,11 +185,15 @@ services:
       AWS_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
       AWS_TRANSACTIONS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
       AWS_TRANSACTIONS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+      METRICS_PORT: "9090"
     ports:
       # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
       # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas
       # coisas confunde quem precisa mudar só uma delas.
       - "127.0.0.1:${API_HOST_PORT:-8080}:8080"
+      # Métricas em porta própria. Publicada só no loopback, para inspeção
+      # local: num ambiente real ela não sai da rede interna.
+      - "127.0.0.1:${METRICS_HOST_PORT:-9092}:9090"
     depends_on:
       keycloak:
         condition: service_healthy
@@ -214,6 +218,30 @@ services:
       - ALL
     tmpfs:
       - /tmp:noexec,nosuid,nodev,size=16M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    container_name: munchkin_prometheus
+    # Diferencial opcional pelo §12: fica atrás de profile para que o ambiente
+    # padrão continue leve — quem avalia não deveria precisar de uma máquina
+    # grande para rodar o núcleo.
+    profiles: ["observability"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=6h
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-9091}:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

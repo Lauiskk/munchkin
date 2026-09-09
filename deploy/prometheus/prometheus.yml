@@ -1,0 +1,12 @@
+# Coleta das métricas do Munchkin.
+#
+# Alcança a aplicação pela rede interna do compose, na porta de métricas — que é
+# separada da porta da API de propósito.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: munchkin
+    static_configs:
+      - targets: ["api:9090"]
