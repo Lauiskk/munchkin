@@ -24,7 +24,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 04 | Migrations versionadas e schema com as constraints | ✅ |
 | 05 | `Money` | ✅ |
 | 06 | Agregados de domínio | ✅ |
-| 07 | Abertura de carteira | 🟡 implementado, integração pendente |
+| 07 | Abertura de carteira | ✅ |
 | 08 | Operação financeira e idempotência | ⬜ |
 | 09 | Reversões e referências pendentes | ⬜ |
 | 10 | Outbox e publicação | ⬜ |
@@ -190,6 +190,58 @@ dispara não prova nada.
 
 Ajustáveis pelo `.env`. LocalStack, Prometheus e Grafana entram nas próximas
 etapas — hoje o compose sobe Keycloak, PostgreSQL e a aplicação.
+
+## Exemplos de chamada
+
+```sh
+# token do serviço interno (escopo wallets:admin)
+ADMIN=$(curl -s -X POST \
+  http://localhost:8180/realms/munchkin/protocol/openid-connect/token \
+  -d grant_type=client_credentials \
+  -d client_id=wallet-admin \
+  -d client_secret=local-only-wallet-admin | jq -r .access_token)
+
+# abre a carteira
+curl -s -X POST localhost:8080/wallets \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"playerId":"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1",
+       "initialBalance":{"amount":"1000.00","currency":"BRL"}}'
+```
+
+```json
+201 {"id":"0192f291-...","playerId":"0192f28f-...",
+     "balance":{"amount":"1000.00","currency":"BRL"},"version":1}
+```
+
+Uma abertura com saldo positivo grava, **no mesmo commit**: a carteira, a
+transação `OPENING` em `PROCESSED`, o lançamento de crédito e dois registros de
+outbox. Saldo inicial zero grava apenas a carteira.
+
+```sh
+curl -s localhost:8080/wallets/$WALLET_ID -H "Authorization: Bearer $ADMIN"
+```
+
+Erros trazem o campo apontado, e todos de uma vez:
+
+```json
+400 {
+  "code": "VALIDATION_ERROR",
+  "fields": [
+    { "field": "playerId", "code": "INVALID_FORMAT", "message": "..." },
+    { "field": "initialBalance.currency", "code": "INVALID_VALUE", "message": "..." }
+  ],
+  "correlationId": "01a086a2-..."
+}
+```
+
+| Situação | Código |
+|---|---|
+| Criada | 201 |
+| Entrada inválida | 400 com `fields` |
+| Sem credencial | 401 |
+| Sem o escopo `wallets:admin` | 403 |
+| Carteira inexistente | 404 |
+| Jogador já tem carteira nessa moeda | 409 |
 
 ## Migrations
 
