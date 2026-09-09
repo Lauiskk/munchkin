@@ -98,7 +98,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-fiber-ctx gate-failure-codes
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-fiber-ctx gate-failure-codes
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -172,6 +172,20 @@ gate-failure-codes:
 	  diff <(echo "$$codigo") <(echo "$$doc") | sed 's/^/    /'; exit 1; fi; \
 	echo "✓ catálogo de falhas documentado"
 
+## gate-app-pure: casos de uso sem dependência de adaptador
+# O caso de uso declara as interfaces de que precisa; o adaptador se adapta. A
+# direção oposta faz a regra de negócio depender do formato do banco e do
+# framework web — foi o que aconteceu ao escrever a abertura de carteira, e o
+# gate existe porque vai acontecer de novo.
+gate-app-pure:
+	@if [ "$$($(GO) list ./internal/app/... 2>/dev/null | wc -l)" -eq 0 ]; then \
+	  echo "· camada de aplicação ainda vazia, gate ocioso"; exit 0; fi; \
+	deps=$$($(GO) list -deps ./internal/app/... 2>/dev/null \
+	  | grep -E 'munchkin/internal/adapter|gofiber|gorm\.io|aws-sdk-go' || true); \
+	if [ -n "$$deps" ]; then \
+	  echo "✗ caso de uso importa adaptador:"; echo "$$deps" | sed 's/^/    /'; exit 1; fi; \
+	echo "✓ casos de uso independentes de adaptador"
+
 ## gate-fiber-ctx: handlers usam c.UserContext(), nunca c.Context()
 # Exceção única, marcada com `gate:allow-fiber-ctx` na mesma linha: o middleware
 # que deriva o context.Context da aplicação precisa ler o do fasthttp uma vez.
@@ -186,4 +200,4 @@ gate-fiber-ctx:
 
 .PHONY: help fuzz up down logs ps migrate-up migrate-down migrate-down-all migrate-status build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
-        gate-domain-pure gate-fiber-ctx gate-deps gate-failure-codes
+        gate-domain-pure gate-app-pure gate-fiber-ctx gate-deps gate-failure-codes
