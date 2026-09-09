@@ -29,7 +29,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 09 | Reversões e referências pendentes | ✅ |
 | 10 | Outbox e publicação | ✅ |
 | 11 | Consumidor SQS e inbox | ✅ |
-| 12 | Consultas e reconciliação | ⬜ |
+| 12 | Consultas e reconciliação | ✅ |
 | 13 | Observabilidade | ⬜ |
 | 14 | Documentação de API (Swagger) | ⬜ |
 | 15 | Testes de integração com infraestrutura real | ⬜ |
@@ -345,6 +345,64 @@ curl -s localhost:8080/providers/provider-a/wagering/transactions/transaction-12
 
 Transação de outro provedor responde **404**, não 403 — um 403 confirmaria que
 ela existe.
+
+## Extrato e reconciliação
+
+```sh
+curl -s "localhost:8080/wallets/$WID/ledger?limit=50" -H "Authorization: Bearer $ADMIN"
+```
+
+```json
+{
+  "walletId": "0192f291-...",
+  "entries": [
+    { "id": "0192f298-...", "transactionId": "0192f298-...",
+      "direction": "DEBIT",
+      "money":         { "amount": "25.00",   "currency": "BRL" },
+      "balanceBefore": { "amount": "1000.00", "currency": "BRL" },
+      "balanceAfter":  { "amount": "975.00",  "currency": "BRL" },
+      "createdAt": "2026-09-09T12:00:00.000Z" }
+  ],
+  "nextCursor": "MjAyNi0wOS0wOVQxMjowMDowMFp8MDE5MmYyOTgt..."
+}
+```
+
+Paginação por **keyset**, do mais recente para o mais antigo, com cursor
+**opaco** — não interprete nem construa: passe de volta o `nextCursor` recebido.
+A última página não traz `nextCursor`, e é assim que se sabe parar. `limit`
+padrão 50, máximo 200.
+
+Um lançamento novo durante a paginação não desloca as páginas seguintes: ele é
+mais recente que a posição do cursor e cai fora delas por construção.
+
+```sh
+curl -s -X POST "localhost:8080/wallets/$WID/reconciliation" -H "Authorization: Bearer $ADMIN"
+```
+
+```json
+{
+  "walletId": "0192f291-...",
+  "storedBalance":     { "amount": "975.00", "currency": "BRL" },
+  "calculatedBalance": { "amount": "975.00", "currency": "BRL" },
+  "difference":        { "amount": "0.00",   "currency": "BRL" },
+  "consistent": true,
+  "checkedEntries": 2
+}
+```
+
+Reconstrói o saldo somando o ledger — incluindo a abertura — e compara com o
+armazenado. `difference` é o armazenado **menos** o reconstruído, e sai com
+sinal: saldo menor que o ledger é tão divergência quanto o contrário. A
+conferência **não altera nada**, e lê os dois valores na mesma instrução, para
+que uma movimentação concorrente não produza divergência falsa.
+
+| Situação | Código |
+|---|---|
+| Extrato ou conferência devolvidos | 200 |
+| `cursor` ou `limit` inválidos | 400 com `fields` |
+| Sem credencial | 401 |
+| Sem escopo `wallets:admin` | 403 |
+| Carteira inexistente | 404 |
 
 ## Eventos e filas
 

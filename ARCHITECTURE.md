@@ -819,8 +819,10 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 12 a 16 da tabela do `README.md` ainda não foram implementadas:
-  consultas com cursor, reconciliação, observabilidade, Swagger e as suítes
-  finais de integração e recuperação.
+- As etapas 13 a 16 da tabela do `README.md` ainda não foram implementadas:
+  observabilidade, Swagger e as suítes finais de integração e recuperação.
+- A **métrica** de divergência de reconciliação que o §12 pede ainda não existe.
+  A divergência já é reportada na resposta e no log com nível de erro; o
+  contador entra junto do registro Prometheus, na etapa 13.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.
