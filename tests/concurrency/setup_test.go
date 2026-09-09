@@ -72,9 +72,17 @@ func novoCenario(t *testing.T) cenario {
 			"MUNCHKIN_APP_USER":     testAppUser,
 			"MUNCHKIN_APP_PASSWORD": testAppPassword,
 		}),
+		// Duas condições, não uma. O log aparece quando o PostgreSQL aceita
+		// conexões, mas o mapeamento de porta do Docker pode ainda não existir
+		// — e aí MappedPort devolve `port "5432/tcp" not found`, uma falha
+		// intermitente que não tem nada a ver com o que o teste verifica.
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).WithStartupTimeout(2*time.Minute)),
+			wait.ForAll(
+				wait.ForLog("database system is ready to accept connections").
+					WithOccurrence(2),
+				wait.ForListeningPort("5432/tcp"),
+			).WithStartupTimeoutDefault(2*time.Minute),
+		),
 	)
 	require.NoError(t, err, "Docker precisa estar em execução")
 	t.Cleanup(func() {
