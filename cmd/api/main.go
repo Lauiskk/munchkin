@@ -14,6 +14,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 
+	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/logs"
@@ -50,6 +51,7 @@ func main() {
 			return &fxevent.SlogLogger{Logger: log}
 		}),
 
+		auth.Module,
 		server.Module,
 	)
 
