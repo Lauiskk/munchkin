@@ -74,6 +74,7 @@ func (h *Wagering) Submit(c *fiber.Ctx) error {
 		Kind:                decodificado.Kind,
 		Money:               decodificado.Money,
 		ReferenceExternalID: decodificado.ReferenceExternalID,
+		Source:              app.SourceHTTP,
 	})
 	if err != nil {
 		return traduzirErroDeOperacao(err)

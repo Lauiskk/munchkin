@@ -12,6 +12,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/app/inbox"
 	"github.com/Lauiskk/munchkin/internal/app/outbox"
 	"github.com/Lauiskk/munchkin/internal/config"
@@ -82,6 +83,8 @@ var Module = fx.Module("sqs",
 )
 
 // newConsumer aplica a configuração ao consumidor.
-func newConsumer(c *Client, h *inbox.Handler, cfg config.Config, log *slog.Logger) *Consumer {
-	return NewConsumer(c, h, log, cfg.Worker.ConsumerBatch, cfg.Worker.ConsumerWait)
+func newConsumer(
+	c *Client, h *inbox.Handler, metrics app.Metrics, cfg config.Config, log *slog.Logger,
+) *Consumer {
+	return NewConsumer(c, h, metrics, log, cfg.Worker.ConsumerBatch, cfg.Worker.ConsumerWait)
 }

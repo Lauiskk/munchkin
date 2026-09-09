@@ -24,6 +24,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/internal/worker"
 	"github.com/Lauiskk/munchkin/pkg/logs"
+	"github.com/Lauiskk/munchkin/pkg/metrics"
 )
 
 // Prazos do ciclo de vida. A subida é curta porque tudo que ela faz é validar e
@@ -74,6 +75,7 @@ func main() {
 		appinbox.Module,
 		appwagering.Module,
 		auth.Module,
+		metrics.Module,
 		sqs.Module,
 		server.Module,
 		worker.Module,

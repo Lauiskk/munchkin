@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/contract"
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/app/inbox"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	"github.com/Lauiskk/munchkin/pkg/correlation"
@@ -25,13 +27,17 @@ const maxMotivo = 900
 type Consumer struct {
 	client   *Client
 	handler  *inbox.Handler
+	metrics  app.Metrics
 	log      *slog.Logger
 	lote     int32
 	esperaMS int32
 }
 
 // NewConsumer monta o consumidor.
-func NewConsumer(c *Client, h *inbox.Handler, log *slog.Logger, lote int, espera time.Duration) *Consumer {
+func NewConsumer(
+	c *Client, h *inbox.Handler, metrics app.Metrics, log *slog.Logger,
+	lote int, espera time.Duration,
+) *Consumer {
 	// O SQS limita o lote a 10 e a espera a 20s. Passar disso é erro de
 	// requisição, não uma configuração generosa.
 	if lote > 10 {
@@ -41,7 +47,7 @@ func NewConsumer(c *Client, h *inbox.Handler, log *slog.Logger, lote int, espera
 		espera = 20 * time.Second
 	}
 	return &Consumer{
-		client: c, handler: h, log: log,
+		client: c, handler: h, metrics: metrics, log: log,
 		lote: int32(lote), esperaMS: int32(espera.Seconds()),
 	}
 }
@@ -145,7 +151,16 @@ func entrada(m contract.DecodedMessage) appwagering.Input {
 		Kind:                t.Kind,
 		Money:               t.Money,
 		ReferenceExternalID: t.ReferenceExternalID,
+		Source:              app.SourceSQS,
 	}
+}
+
+// categoria reduz o motivo do descarte a um rótulo de cardinalidade fechada.
+func categoria(motivo string) string {
+	if strings.Contains(motivo, "divergente") {
+		return "hash_mismatch"
+	}
+	return "invalid_message"
 }
 
 // descartar manda a mensagem para a DLQ e a remove da fila de origem.
@@ -155,6 +170,9 @@ func entrada(m contract.DecodedMessage) appwagering.Input {
 // primeira tentativa, e quatro reentregas não acrescentam informação.
 func (c *Consumer) descartar(ctx context.Context, m types.Message, motivo string) {
 	id := aws.ToString(m.MessageId)
+	// O rótulo é a CATEGORIA do descarte, não a mensagem de erro: o texto varia
+	// com o campo que falhou, e cada variação viraria uma série nova.
+	c.metrics.MessageDeadLettered(categoria(motivo))
 	c.log.LogAttrs(ctx, slog.LevelWarn, "consumer.dead_lettered",
 		slog.String(logs.KeyMessageID, id),
 		slog.String(logs.KeyCorrelationID, correlation.From(ctx)),
