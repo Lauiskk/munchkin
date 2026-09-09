@@ -72,6 +72,16 @@ func (a ambienteHTTP) chamar(
 	t *testing.T, metodo, caminho, corpo string, identidade adapterauth.Identity, cabecalhos map[string]string,
 ) (*http.Response, []byte) {
 	t.Helper()
+	return a.chamarComVerificador(t, metodo, caminho, corpo,
+		verificadorFixo{identidade: identidade}, true, cabecalhos)
+}
+
+// chamarComVerificador permite exercitar credencial ausente e inválida.
+func (a ambienteHTTP) chamarComVerificador(
+	t *testing.T, metodo, caminho, corpo string,
+	verificador verificadorFixo, comCabecalho bool, cabecalhos map[string]string,
+) (*http.Response, []byte) {
+	t.Helper()
 
 	descartado := slog.New(slog.NewTextHandler(io.Discard, nil))
 	app := server.New(
@@ -85,7 +95,7 @@ func (a ambienteHTTP) chamar(
 		handler.NewHealth(descartado, 2*time.Second),
 		handler.NewWallet(a.opener, a.getter, a.statement, a.reconciler),
 		handler.NewWagering(a.processor, a.querier),
-		verificadorFixo{identidade: identidade},
+		verificador,
 		router.NewPublicPaths(),
 	)
 
@@ -97,7 +107,9 @@ func (a ambienteHTTP) chamar(
 	if corpo != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer token-de-teste")
+	if comCabecalho {
+		req.Header.Set("Authorization", "Bearer token-de-teste")
+	}
 	for k, v := range cabecalhos {
 		req.Header.Set(k, v)
 	}
@@ -314,3 +326,6 @@ func reversaoJSON(externo, carteira, jogador, valor, referencia string) string {
 	  "referenceExternalTransactionId":%q}`,
 		externo, jogador, carteira, valor, referencia)
 }
+
+// jsonDe decodifica um corpo de resposta.
+func jsonDe(corpo []byte, destino any) error { return json.Unmarshal(corpo, destino) }

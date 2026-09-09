@@ -269,6 +269,16 @@ func TestCursorAlemDoFimDevolvePaginaVazia(t *testing.T) {
 	assert.Nil(t, pagina.Next)
 }
 
+// instantaneoPorUUID captura o estado financeiro de uma carteira pelo seu UUID.
+func (a ambienteOperacao) instantaneoPorUUID(t *testing.T, id uuid.UUID) [3]int64 {
+	t.Helper()
+	return [3]int64{
+		a.conta(t, `SELECT balance_minor FROM wallets WHERE id = ?`, id),
+		a.conta(t, `SELECT version FROM wallets WHERE id = ?`, id),
+		a.conta(t, `SELECT count(*) FROM wallet_ledger_entries WHERE wallet_id = ?`, id),
+	}
+}
+
 // instantaneo captura o que a reconciliação não pode alterar.
 func (a ambienteExtrato) instantaneo(t *testing.T, w domainwallet.ID) [3]int64 {
 	t.Helper()
