@@ -1,0 +1,49 @@
+# golangci-lint v2 — Munchkin
+# Seleção voltada para um serviço financeiro: erro não pode sumir em silêncio,
+# recurso não pode vazar, e contexto tem que ser propagado.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose       # resposta HTTP fechada
+    - errorlint       # comparação de erro por errors.Is/As, não por ==
+    - gocritic
+    - gosec           # varredura de segurança
+    - misspell
+    - nilerr          # return nil quando err != nil
+    - noctx           # requisição HTTP sem context
+    - revive
+    - rowserrcheck    # rows.Err() após iterar
+    - sqlclosecheck   # rows/stmt fechados
+    - unconvert
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gosec:
+      excludes:
+        - G115         # conversão int → int; tratamos overflow explicitamente no money
+    revive:
+      rules:
+        - name: exported
+          disabled: true   # documentação vive nos docs, não em comentário por símbolo
+  exclusions:
+    presets:
+      - common-false-positives
+    rules:
+      - path: _test\.go$
+        linters: [gosec, errcheck]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Lauiskk/munchkin
