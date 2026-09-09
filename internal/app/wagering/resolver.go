@@ -50,6 +50,7 @@ type PendingRepository interface {
 // seguem para a próxima em vez de esperar.
 type Resolver struct {
 	tx        TxManager
+	metrics   app.Metrics
 	pending   PendingRepository
 	wallets   WalletRepository
 	processor *Processor
@@ -61,11 +62,11 @@ type Resolver struct {
 // NewResolver monta o resolvedor.
 func NewResolver(
 	tx TxManager, pending PendingRepository, wallets WalletRepository,
-	processor *Processor, log *slog.Logger, clock app.Clock,
+	processor *Processor, log *slog.Logger, clock app.Clock, metrics app.Metrics,
 ) *Resolver {
 	return &Resolver{
 		tx: tx, pending: pending, wallets: wallets,
-		processor: processor, log: log, clock: clock, lote: 50,
+		processor: processor, log: log, clock: clock, metrics: metrics, lote: 50,
 	}
 }
 
@@ -115,8 +116,10 @@ func (r *Resolver) resolverUma(ctx context.Context, c PendingReference, agora ti
 
 		operacao, err := r.pending.LockPendingReference(ctx, c.TransactionID, agora)
 		if errors.Is(err, app.ErrNotFound) {
-			// Outra instância já tomou esta pendência, ou ela deixou de estar
-			// vencida. Não é erro: é a coordenação funcionando.
+			// Outra instância chegou primeiro. É rotina, não erro — e é a
+			// disputa de concorrência que de fato acontece o tempo todo neste
+			// sistema, então é ela que o contador precisa enxergar.
+			r.metrics.ConcurrencyConflict("pending_reference")
 			return nil
 		}
 		if err != nil {
@@ -163,6 +166,7 @@ func (r *Resolver) aplicarRetomada(
 		}
 
 		proxima := agora.Add(Backoff(tentativas))
+		r.metrics.WorkerRetry("reference.resolver")
 		if err := operacao.ScheduleRetry(proxima, agora); err != nil {
 			return err
 		}

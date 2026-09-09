@@ -44,6 +44,11 @@ type Input struct {
 	Money    money.Money
 
 	ReferenceExternalID domain.ExternalID
+
+	// Source é por onde a operação entrou. Não participa do hash de
+	// idempotência — a mesma operação por HTTP e por fila é a MESMA operação —
+	// e existe só para que a métrica saiba distinguir os caminhos.
+	Source string
 }
 
 // Output é o desfecho, do ponto de vista do provedor.
@@ -67,16 +72,18 @@ type Processor struct {
 	entries      LedgerRepository
 	outbox       OutboxRepository
 	clock        app.Clock
+	metrics      app.Metrics
 }
 
 // NewProcessor monta o caso de uso.
 func NewProcessor(
 	tx TxManager, wallets WalletRepository, transactions TransactionRepository,
 	entries LedgerRepository, outbox OutboxRepository, clock app.Clock,
+	metrics app.Metrics,
 ) *Processor {
 	return &Processor{
 		tx: tx, wallets: wallets, transactions: transactions,
-		entries: entries, outbox: outbox, clock: clock,
+		entries: entries, outbox: outbox, clock: clock, metrics: metrics,
 	}
 }
 
@@ -114,13 +121,40 @@ func (p *Processor) Process(ctx context.Context, in Input) (Output, error) {
 		return Output{}, err
 	}
 
+	inicio := p.clock.Now()
+
 	var out Output
 	err = p.tx.Within(ctx, func(ctx context.Context) error {
 		var erroInterno error
 		out, erroInterno = p.executar(ctx, in, hash)
 		return erroInterno
 	})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+
+	// A medição fica DEPOIS do commit, e só no caminho bem-sucedido: medir
+	// dentro da transação incluiria o tempo do próprio registro, e medir o
+	// caminho que falhou misturaria latência de trabalho com latência de erro.
+	p.registrar(in, out, p.clock.Now().Sub(inicio))
+	return out, nil
+}
+
+// registrar publica o que aconteceu. Nunca altera o resultado.
+func (p *Processor) registrar(in Input, out Output, duracao time.Duration) {
+	origem := in.Source
+	if origem == "" {
+		origem = app.SourceHTTP
+	}
+
+	if out.IdempotentReplay {
+		p.metrics.IdempotentReplay(origem)
+		return
+	}
+
+	p.metrics.TransactionSettled(
+		string(in.Kind), string(out.Status), string(out.FailureCode), origem)
+	p.metrics.ProcessingDuration(string(in.Kind), origem, duracao)
 }
 
 func (p *Processor) executar(ctx context.Context, in Input, hash []byte) (Output, error) {
@@ -255,6 +289,11 @@ func (p *Processor) aplicarDecisao(
 
 	if movimento != nil {
 		if err := p.wallets.UpdateBalance(ctx, w, versaoAnterior); err != nil {
+			// Chegar aqui significa que a versão mudou apesar do lock da linha.
+			// Não deveria acontecer, e é justamente por isso que interessa
+			// contar: um contador que sobe aqui é sintoma de que alguma escrita
+			// escapou do caminho travado.
+			p.metrics.ConcurrencyConflict("wallet_version")
 			return Output{}, err
 		}
 		entryID, err := ledger.NewID()

@@ -182,3 +182,29 @@ func (l outboxRow) toPending() outbox.PendingEvent {
 	}
 	return p
 }
+
+// OldestPendingAge devolve há quanto tempo o evento pendente mais antigo espera.
+//
+// A idade é calculada pelo relógio do BANCO, pela mesma razão do lease: é o
+// único que todas as instâncias compartilham, e um processo com relógio
+// adiantado publicaria atraso que não existe.
+//
+// Só conta o que já está vencido — um evento agendado para daqui a trinta
+// segundos por backoff não está atrasado, está esperando.
+func (r *OutboxRepository) OldestPendingAge(ctx context.Context) (time.Duration, error) {
+	// A conversão para milissegundos acontece no BANCO, e o Go recebe um
+	// inteiro. Receber segundos em float e multiplicar aqui funcionaria, e o
+	// gate que proíbe ponto flutuante neste pacote recusaria — com razão: a
+	// regra não abre exceção para "mas aqui não é valor monetário", porque a
+	// exceção é justamente como o float volta ao caminho do dinheiro.
+	var milissegundos int64
+	err := r.db.Session(ctx).Raw(`
+		SELECT COALESCE(
+		         (EXTRACT(EPOCH FROM (now() - MIN(created_at))) * 1000)::bigint, 0)
+		  FROM outbox_events
+		 WHERE published_at IS NULL AND next_attempt_at <= now()`).Scan(&milissegundos).Error
+	if err != nil {
+		return 0, classify(err)
+	}
+	return time.Duration(milissegundos) * time.Millisecond, nil
+}

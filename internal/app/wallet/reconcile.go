@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wallet"
 	"github.com/Lauiskk/munchkin/pkg/logs"
@@ -45,13 +46,14 @@ type ReconcileReader interface {
 
 // Reconciler confere o saldo contra o ledger.
 type Reconciler struct {
-	reader ReconcileReader
-	log    *slog.Logger
+	reader  ReconcileReader
+	metrics app.Metrics
+	log     *slog.Logger
 }
 
 // NewReconciler monta a conferência.
-func NewReconciler(reader ReconcileReader, log *slog.Logger) *Reconciler {
-	return &Reconciler{reader: reader, log: log}
+func NewReconciler(reader ReconcileReader, metrics app.Metrics, log *slog.Logger) *Reconciler {
+	return &Reconciler{reader: reader, metrics: metrics, log: log}
 }
 
 // Run confere e devolve o resultado. Não altera nada.
@@ -84,6 +86,7 @@ func (r *Reconciler) Run(ctx context.Context, id domain.ID) (Reconciliation, err
 	}
 
 	if !resultado.Consistent {
+		r.metrics.ReconciliationDivergence()
 		// Nível de erro, e com os valores. Aqui os números SÃO o incidente: um
 		// alerta de divergência sem dizer de quanto obriga quem for atender a
 		// refazer a consulta à mão, no pior momento possível.

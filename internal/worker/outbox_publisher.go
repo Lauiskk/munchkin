@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/fx"
 
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/app/outbox"
 	"github.com/Lauiskk/munchkin/internal/config"
 )
@@ -19,7 +20,8 @@ import (
 // de um reinício, dividiriam a identidade e um assumiria como seu o trabalho
 // abandonado pelo outro — que é exatamente o que o lease existe para evitar.
 func newOutboxDispatcher(
-	repo outbox.Repository, pub outbox.Publisher, cfg config.Config, log *slog.Logger,
+	repo outbox.Repository, pub outbox.Publisher, metrics app.Metrics,
+	cfg config.Config, log *slog.Logger,
 ) (*outbox.Dispatcher, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -33,7 +35,7 @@ func newOutboxDispatcher(
 		maquina = "desconhecida"
 	}
 
-	return outbox.NewDispatcher(repo, pub, log,
+	return outbox.NewDispatcher(repo, pub, metrics, log,
 		fmt.Sprintf("%s/%s", maquina, id),
 		cfg.Worker.OutboxBatch, cfg.Worker.OutboxLease), nil
 }

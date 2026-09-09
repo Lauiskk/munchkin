@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/domain/event"
 	"github.com/Lauiskk/munchkin/pkg/backoff"
 	"github.com/Lauiskk/munchkin/pkg/logs"
@@ -33,12 +34,13 @@ const (
 // Roda em TODAS as instâncias, sem eleição de líder: a coordenação é a
 // reivindicação por lease no banco.
 type Dispatcher struct {
-	repo  Repository
-	pub   Publisher
-	log   *slog.Logger
-	dono  string
-	lote  int
-	lease time.Duration
+	repo    Repository
+	pub     Publisher
+	metrics app.Metrics
+	log     *slog.Logger
+	dono    string
+	lote    int
+	lease   time.Duration
 }
 
 // NewDispatcher monta o publicador.
@@ -47,17 +49,24 @@ type Dispatcher struct {
 // distinto por processo: dois processos com o mesmo identificador não
 // conseguiriam distinguir o próprio trabalho do trabalho abandonado do outro.
 func NewDispatcher(
-	repo Repository, pub Publisher, log *slog.Logger,
+	repo Repository, pub Publisher, metrics app.Metrics, log *slog.Logger,
 	dono string, lote int, lease time.Duration,
 ) *Dispatcher {
 	return &Dispatcher{
-		repo: repo, pub: pub, log: log,
+		repo: repo, pub: pub, metrics: metrics, log: log,
 		dono: dono, lote: lote, lease: lease,
 	}
 }
 
 // RunOnce publica uma rodada e devolve quantos eventos saíram.
 func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
+	// A idade é publicada a cada rodada, inclusive quando não há trabalho: um
+	// medidor que só é atualizado quando há evento pendente ficaria preso no
+	// último valor alto depois que a fila esvaziasse.
+	if idade, err := d.repo.OldestPendingAge(ctx); err == nil {
+		d.metrics.OutboxPendingAge(idade)
+	}
+
 	pendentes, err := d.repo.Claim(ctx, d.dono, d.lease, d.lote)
 	if err != nil {
 		return 0, fmt.Errorf("reivindicação de eventos: %w", err)
@@ -113,6 +122,7 @@ func (d *Dispatcher) publicar(ctx context.Context, e PendingEvent) error {
 
 // adiar devolve o evento para a fila e propaga a causa original.
 func (d *Dispatcher) adiar(ctx context.Context, e PendingEvent, causa error) error {
+	d.metrics.WorkerRetry("outbox.publisher")
 	espera := backoff.Exponential(e.Attempts+1, backoffBase, backoffMax)
 	if err := d.repo.Reschedule(ctx, e.ID, espera, truncar(causa.Error())); err != nil {
 		// Duas falhas de uma vez: a publicação e o registro dela. As duas

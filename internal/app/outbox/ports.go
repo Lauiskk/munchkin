@@ -63,6 +63,14 @@ type Repository interface {
 	// registra a causa e libera o lease. A espera também é relativa ao relógio
 	// do banco, pela mesma razão do lease.
 	Reschedule(ctx context.Context, id event.ID, espera time.Duration, motivo string) error
+
+	// OldestPendingAge devolve há quanto tempo o evento pendente mais antigo
+	// espera. Zero quando não há pendentes.
+	//
+	// É a medida honesta de atraso da outbox: contar quantos estão pendentes
+	// não distingue mil eventos recém-gravados de um único evento parado há uma
+	// hora, e é o segundo que indica problema.
+	OldestPendingAge(ctx context.Context) (time.Duration, error)
 }
 
 // Message é o que vai para o transporte.
