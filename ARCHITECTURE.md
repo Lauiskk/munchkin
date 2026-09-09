@@ -69,18 +69,54 @@ função de negócio.
 `"25.37"` é `2537`. Casas decimais são exatas porque centavos são inteiros.
 
 O parsing é escrito à mão, dígito a dígito. **Não passa por
-`strconv.ParseFloat` em momento nenhum**, nem como etapa intermediária. Rejeita
-vazio, `NaN`, `Infinity`, notação científica, escala acima de duas casas e
-negativo em entrada financeira externa. Não há arredondamento silencioso: uma
-entrada inválida é erro, nunca um valor corrigido às escondidas.
+`strconv.ParseFloat` em momento nenhum**, nem como etapa intermediária. Não há
+arredondamento silencioso: uma entrada inválida é erro, nunca um valor corrigido
+às escondidas.
 
 Persistência em `amount_minor BIGINT` + `currency CHAR(3)`.
 
-**Limites.** `int64` cobre de `-92.233.720.368.547.758,08` a
-`+92.233.720.368.547.758,07`. O complemento de dois é assimétrico, então negar o
-menor valor estoura — caso tratado explicitamente. Overflow é verificado em
-parsing, soma, subtração e negação, sempre **antes** da operação, comparando
-contra o limite, e nunca depois pelo sinal do resultado.
+### Formato aceito: uma grafia por valor
+
+O contrato é exato — sinal opcional, parte inteira sem zeros à esquerda, ponto,
+**exatamente** duas casas:
+
+| Aceito | Recusado | Por quê |
+|---|---|---|
+| `"25.00"` | `"25"`, `"25.0"`, `"25.000"` | escala tem de ser exatamente 2 |
+| `"0.00"` | `".00"`, `"-0.00"` | parte inteira obrigatória; zero não tem sinal |
+| `"-60.00"` | `"+25.00"`, `" 25.00"` | sinal positivo e espaço são grafias alternativas |
+| `"25.37"` | `"025.00"` | zero à esquerda é grafia alternativa |
+| | `"25,00"`, `"1e2"`, `"NaN"`, `"Infinity"`, `"0x19"`, `"２５.００"` | não é o formato |
+
+O §6.1 do enunciado oferece duas saídas: aceitar formas equivalentes e
+**documentar a normalização anterior ao hash de idempotência**, ou não aceitá-las.
+Escolhemos a segunda, e a razão é a idempotência: se `"25.00"` e `"025.00"` forem
+ambos aceitos, a mesma operação enviada com grafias diferentes gera hashes
+diferentes e vira duas operações. Recusando as alternativas, **não existe
+normalização a documentar** — uma peça a menos no caminho da idempotência, e uma
+peça a menos que pode divergir entre a entrada HTTP e a entrada por fila.
+
+O custo é real: um provedor que envie `"25.0"` recebe recusa. A mensagem de erro
+diz exatamente qual é o problema, e não uma falha genérica de parsing.
+
+Que o formato aceito seja também o formato produzido é propriedade verificada por
+fuzzing: toda entrada aceita, ao ser reformatada, tem de voltar a ser aceita e
+produzir o mesmo valor.
+
+### Limites
+
+`int64` em unidades mínimas cobre de `-92.233.720.368.547.758,07` a
+`+92.233.720.368.547.758,07`.
+
+A faixa é **simétrica por decisão**, não por acaso. O menor `int64` é recusado na
+construção porque sua negação não seria representável: aceitá-lo criaria um valor
+legítimo que faz `Neg` estourar mais adiante, longe de onde foi criado. Recusar
+na entrada elimina o caso de borda em vez de tratá-lo em cada operação.
+
+Overflow é verificado em parsing, soma e subtração **antes** da operação,
+comparando contra o limite — nunca depois, inspecionando o sinal do resultado.
+Em Go, estouro de inteiro com sinal não gera pânico: ele dá a volta em silêncio,
+e num sistema financeiro isso é um saldo absurdo sem rastro.
 
 Valores negativos existem em diferenças e cálculos internos; são rejeitados na
 entrada externa e impossíveis no saldo, que tem `CHECK (balance_minor >= 0)`.
