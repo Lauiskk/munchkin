@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/pkg/apperr"
 	"github.com/Lauiskk/munchkin/pkg/logs"
 )
@@ -73,6 +74,12 @@ func translate(err error) *apperr.Error {
 	if errors.Is(err, context.Canceled) {
 		return apperr.New(apperr.CodeTimeout, fiber.StatusRequestTimeout,
 			"a requisição foi cancelada antes de concluir")
+	}
+
+	// Indisponibilidade transitória é do cliente saber: ele pode e deve tentar
+	// de novo. Um 500 diria "há um defeito aqui", e defeito não se retenta.
+	if errors.Is(err, app.ErrUnavailable) {
+		return apperr.Unavailable("dependência temporariamente indisponível")
 	}
 
 	// Erros do próprio Fiber — rota inexistente, método não permitido, corpo

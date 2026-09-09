@@ -180,6 +180,12 @@ func traduzirErroDeOperacao(err error) error {
 	switch {
 	case errors.Is(err, appwagering.ErrIdempotencyConflict):
 		return apperr.Conflict(err.Error())
+	// Indisponibilidade transitória vem ANTES do caso genérico: sem isto, um
+	// banco fora do ar cai no default e vira 500, dizendo "há um defeito aqui"
+	// para algo que só precisa ser repetido.
+	case errors.Is(err, app.ErrUnavailable):
+		return apperr.Unavailable("dependência temporariamente indisponível")
+
 	case errors.Is(err, app.ErrNotFound):
 		return apperr.NotFound("transação não encontrada")
 	default:

@@ -84,6 +84,12 @@ func traduzirErroDeCarteira(err error) error {
 	case errors.Is(err, wallet.ErrAlreadyExists):
 		return apperr.Conflict("o jogador já possui carteira nesta moeda")
 
+	// Indisponibilidade transitória vem ANTES do caso genérico: sem isto, um
+	// banco fora do ar cai no default e vira 500, dizendo "há um defeito aqui"
+	// para algo que só precisa ser repetido.
+	case errors.Is(err, app.ErrUnavailable):
+		return apperr.Unavailable("dependência temporariamente indisponível")
+
 	case errors.Is(err, app.ErrNotFound):
 		// Não distingue "não existe" de "existe e você não pode ver": a
 		// diferença entre as duas respostas é reconhecimento de graça.
