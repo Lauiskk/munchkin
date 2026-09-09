@@ -71,7 +71,7 @@ func TestEventoDeSaldoCarregaOsCamposExigidos(t *testing.T) {
 	corpo, err := json.Marshal(event.WalletBalanceChanged{
 		WalletID: wid, TransactionID: tid, Direction: wallet.Debit,
 		Money: valor, BalanceBefore: antes, BalanceAfter: depois,
-		WalletVersion: 2, ChangedAt: time.Now().UTC(),
+		WalletVersion: 2, ChangedAt: event.Timestamp(time.Now().UTC()),
 	})
 	require.NoError(t, err)
 

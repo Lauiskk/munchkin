@@ -1,8 +1,6 @@
 package event
 
 import (
-	"time"
-
 	"github.com/Lauiskk/munchkin/internal/domain/money"
 	"github.com/Lauiskk/munchkin/internal/domain/wagering"
 	"github.com/Lauiskk/munchkin/internal/domain/wallet"
@@ -30,7 +28,7 @@ type WagerTransactionProcessed struct {
 	ExternalID  wagering.ExternalID `json:"externalTransactionId,omitempty"`
 	RoundID     wagering.RoundID    `json:"roundId,omitempty"`
 	GameID      wagering.GameID     `json:"gameId,omitempty"`
-	ProcessedAt time.Time           `json:"processedAt"`
+	ProcessedAt Timestamp           `json:"processedAt"`
 }
 
 func (WagerTransactionProcessed) EventType() Type          { return TypeWagerTransactionProcessed }
@@ -49,7 +47,7 @@ type WagerTransactionRejected struct {
 	FailureCode wagering.FailureCode `json:"failureCode"`
 	ProviderID  wagering.ProviderID  `json:"providerId,omitempty"`
 	ExternalID  wagering.ExternalID  `json:"externalTransactionId,omitempty"`
-	RejectedAt  time.Time            `json:"rejectedAt"`
+	RejectedAt  Timestamp            `json:"rejectedAt"`
 }
 
 func (WagerTransactionRejected) EventType() Type          { return TypeWagerTransactionRejected }
@@ -67,7 +65,7 @@ type WagerTransactionPendingReference struct {
 	ProviderID          wagering.ProviderID    `json:"providerId"`
 	ExternalID          wagering.ExternalID    `json:"externalTransactionId"`
 	ReferenceExternalID wagering.ExternalID    `json:"referenceExternalTransactionId"`
-	PendingSince        time.Time              `json:"pendingSince"`
+	PendingSince        Timestamp              `json:"pendingSince"`
 }
 
 func (WagerTransactionPendingReference) EventType() Type          { return TypeWagerTransactionPendingReference }
@@ -87,7 +85,7 @@ type WalletBalanceChanged struct {
 	BalanceBefore money.Money            `json:"balanceBefore"`
 	BalanceAfter  money.Money            `json:"balanceAfter"`
 	WalletVersion int64                  `json:"walletVersion"`
-	ChangedAt     time.Time              `json:"changedAt"`
+	ChangedAt     Timestamp              `json:"changedAt"`
 }
 
 func (WalletBalanceChanged) EventType() Type          { return TypeWalletBalanceChanged }

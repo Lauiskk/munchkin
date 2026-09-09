@@ -138,7 +138,7 @@ func (o *Opener) registrarAbertura(
 		Kind:          wagering.Opening,
 		Money:         movimento.Amount,
 		Balance:       w.Balance(),
-		ProcessedAt:   agora,
+		ProcessedAt:   event.Timestamp(agora),
 	}, corr); err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (o *Opener) registrarAbertura(
 		BalanceBefore: movimento.BalanceBefore,
 		BalanceAfter:  movimento.BalanceAfter,
 		WalletVersion: w.Version(),
-		ChangedAt:     agora,
+		ChangedAt:     event.Timestamp(agora),
 	}, corr)
 }
 

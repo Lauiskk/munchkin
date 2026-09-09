@@ -32,7 +32,7 @@ func conteudo(t *testing.T) event.WagerTransactionProcessed {
 		TransactionID: tid, WalletID: wid, PlayerID: pid,
 		Kind: wagering.Bet, Money: valor, Balance: saldo,
 		ProviderID: "provider-a", ExternalID: "tx-1",
-		ProcessedAt: agora,
+		ProcessedAt: event.Timestamp(agora),
 	}
 }
 

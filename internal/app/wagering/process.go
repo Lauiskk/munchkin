@@ -503,7 +503,7 @@ func (p *Processor) publicarConclusao(
 		ExternalID:    origem.ExternalID,
 		RoundID:       origem.RoundID,
 		GameID:        origem.GameID,
-		ProcessedAt:   agora,
+		ProcessedAt:   event.Timestamp(agora),
 	}, corr); err != nil {
 		return err
 	}
@@ -522,7 +522,7 @@ func (p *Processor) publicarConclusao(
 		BalanceBefore: movimento.BalanceBefore,
 		BalanceAfter:  movimento.BalanceAfter,
 		WalletVersion: w.Version(),
-		ChangedAt:     agora,
+		ChangedAt:     event.Timestamp(agora),
 	}, corr)
 }
 
@@ -537,7 +537,7 @@ func (p *Processor) publicarPendencia(ctx context.Context, operacao *domain.Tran
 		ProviderID:          origem.ProviderID,
 		ExternalID:          origem.ExternalID,
 		ReferenceExternalID: operacao.ReferenceExternalID(),
-		PendingSince:        agora,
+		PendingSince:        event.Timestamp(agora),
 	}, correlation.From(ctx))
 }
 
@@ -552,7 +552,7 @@ func (p *Processor) publicarRecusa(ctx context.Context, operacao *domain.Transac
 		FailureCode:   operacao.FailureCode(),
 		ProviderID:    origem.ProviderID,
 		ExternalID:    origem.ExternalID,
-		RejectedAt:    agora,
+		RejectedAt:    event.Timestamp(agora),
 	}, correlation.From(ctx))
 }
 
