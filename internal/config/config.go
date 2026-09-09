@@ -27,6 +27,7 @@ type Config struct {
 	HTTP HTTP
 	Log  Log
 	Auth Auth
+	DB   DB
 }
 
 // App identifica o ambiente de execução.
@@ -55,6 +56,40 @@ type HTTP struct {
 
 // Addr devolve o endereço de escuta.
 func (h HTTP) Addr() string { return fmt.Sprintf(":%d", h.Port) }
+
+// DB reúne os parâmetros de conexão com o PostgreSQL.
+type DB struct {
+	Host     string
+	Port     int
+	Name     string
+	User     string
+	Password Secret
+	SSLMode  string
+
+	// MaxOpenConns limita as conexões simultâneas por instância. O padrão é
+	// baixo de propósito: o enunciado exige demonstrar as garantias com pelo
+	// menos três processos independentes, e três instâncias generosas
+	// esgotariam o max_connections padrão do PostgreSQL antes de qualquer
+	// teste começar.
+	MaxOpenConns int
+	MaxIdleConns int
+	// ConnMaxLifetime evita conexões eternas, que envelhecem mal atrás de
+	// balanceadores e após failover.
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+	// ConnectTimeout limita a espera na abertura de conexão.
+	ConnectTimeout time.Duration
+}
+
+// DSN monta a string de conexão. Não há método String no DB justamente para
+// que ninguém imprima a struct inteira achando que está tudo redigido.
+func (d DB) DSN() string {
+	return fmt.Sprintf(
+		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s connect_timeout=%d",
+		d.Host, d.Port, d.Name, d.User, d.Password.Reveal(), d.SSLMode,
+		int(d.ConnectTimeout.Seconds()),
+	)
+}
 
 // Auth reúne os parâmetros de validação de token.
 type Auth struct {
@@ -126,6 +161,19 @@ func Load() (Config, error) {
 			JWKSMinRefreshInterval: v.duration("AUTH_JWKS_MIN_REFRESH_INTERVAL", time.Minute),
 			HTTPTimeout:            v.duration("AUTH_HTTP_TIMEOUT", 5*time.Second),
 		},
+		DB: DB{
+			Host:            v.required("DB_HOST"),
+			Port:            v.port("DB_PORT", 5432),
+			Name:            v.required("DB_NAME"),
+			User:            v.required("DB_USER"),
+			Password:        Secret(v.required("DB_PASSWORD")),
+			SSLMode:         v.enum("DB_SSLMODE", "disable", "disable", "require", "verify-ca", "verify-full"),
+			MaxOpenConns:    v.positiveInt("DB_MAX_OPEN_CONNS", 10),
+			MaxIdleConns:    v.positiveInt("DB_MAX_IDLE_CONNS", 5),
+			ConnMaxLifetime: v.duration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
+			ConnMaxIdleTime: v.duration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
+			ConnectTimeout:  v.duration("DB_CONNECT_TIMEOUT", 5*time.Second),
+		},
 	}
 
 	// O prazo de uma requisição precisa caber na janela de escrita, senão o
@@ -134,6 +182,14 @@ func Load() (Config, error) {
 	if cfg.HTTP.RequestTimeout >= cfg.HTTP.WriteTimeout {
 		v.fail("HTTP_REQUEST_TIMEOUT (%s) deve ser menor que HTTP_WRITE_TIMEOUT (%s)",
 			cfg.HTTP.RequestTimeout, cfg.HTTP.WriteTimeout)
+	}
+
+	// Mais conexões ociosas que abertas é configuração sem sentido: o pool
+	// nunca alcançaria o limite de ociosas, e quem configurou provavelmente
+	// trocou os dois valores de lugar.
+	if cfg.DB.MaxIdleConns > cfg.DB.MaxOpenConns {
+		v.fail("DB_MAX_IDLE_CONNS (%d) não pode exceder DB_MAX_OPEN_CONNS (%d)",
+			cfg.DB.MaxIdleConns, cfg.DB.MaxOpenConns)
 	}
 
 	if err := v.err(); err != nil {
@@ -201,6 +257,24 @@ func (v *validator) port(key string, fallback int) int {
 	}
 	if n < 1 || n > 65535 {
 		v.fail("%s: %d fora da faixa de portas válidas (1-65535)", key, n)
+		return fallback
+	}
+	return n
+}
+
+// positiveInt lê um inteiro que precisa ser maior que zero.
+func (v *validator) positiveInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		v.fail("%s: %q não é um número inteiro", key, raw)
+		return fallback
+	}
+	if n < 1 {
+		v.fail("%s: %d deve ser maior que zero", key, n)
 		return fallback
 	}
 	return n
