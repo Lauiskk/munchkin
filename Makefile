@@ -98,7 +98,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-fiber-ctx gate-failure-codes gate-hash-fields
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -185,6 +185,22 @@ gate-app-pure:
 	if [ -n "$$deps" ]; then \
 	  echo "✗ caso de uso importa adaptador:"; echo "$$deps" | sed 's/^/    /'; exit 1; fi; \
 	echo "✓ casos de uso independentes de adaptador"
+
+## gate-publish-after-commit: quem move dinheiro não alcança o publicador (§14)
+##
+## Publicar antes do commit é eliminatório. A garantia não é "ninguém faz isso":
+## é que o caminho transacional não tem como fazer, porque não enxerga o
+## publicador. Gravar na outbox continua permitido — é o que precisa acontecer
+## DENTRO da transação; o que fica fora de alcance é quem tira de lá.
+gate-publish-after-commit:
+	@paths="./internal/app/wagering/... ./internal/app/wallet/..."; \
+	if [ "$$($(GO) list $$paths 2>/dev/null | wc -l)" -eq 0 ]; then \
+	  echo "· casos de uso financeiros ainda vazios, gate ocioso"; exit 0; fi; \
+	deps=$$($(GO) list -deps $$paths 2>/dev/null \
+	  | grep -E 'munchkin/internal/app/outbox|munchkin/internal/adapter/sqs' || true); \
+	if [ -n "$$deps" ]; then \
+	  echo "✗ o caminho transacional alcança o publicador:"; echo "$$deps" | sed 's/^/    /'; exit 1; fi; \
+	echo "✓ publicação fora da transação"
 
 ## gate-hash-fields: campos do hash de idempotência iguais aos do ARCHITECTURE
 # O conjunto de campos é contrato: acrescentar um muda a identidade de TODA
