@@ -57,12 +57,26 @@ versione o `.env` — há um job de CI que barra isso.
 ## Como rodar
 
 ```sh
-docker compose up --build      # ambiente completo
-# ou, para desenvolver com a aplicação fora do container:
-make up                        # sobe só as dependências
-make migrate-up                # aplica as migrations
+cp .env.example .env
+docker compose up --build      # ou: make up
+```
+
+Sobe o Keycloak com o realm já importado e a aplicação. A imagem da aplicação é
+distroless, roda como usuário não privilegiado, com sistema de arquivos somente
+leitura e sem capacidade nenhuma.
+
+Para desenvolver com a aplicação fora do container:
+
+```sh
+docker compose up -d keycloak
+AUTH_ISSUER=http://localhost:8180/realms/munchkin \
+AUTH_AUDIENCE=munchkin-api \
 make build && ./bin/api
 ```
+
+Se a porta 8080 já estiver ocupada na sua máquina, ajuste `API_HOST_PORT` no
+`.env` — ela é a porta publicada no host, distinta de `HTTP_PORT`, que é a porta
+em que a aplicação escuta dentro do container.
 
 Verificação rápida:
 
@@ -126,17 +140,6 @@ requisição cujo corpo discorde do token é recusada.
 Uma rota inexistente responde 401 a quem não se identificou e 404 a quem se
 identificou — 404 para anônimo contaria quais caminhos existem.
 
-## Migrations
-
-```sh
-make migrate-up       # aplica
-make migrate-down     # reverte
-make migrate-status   # estado atual
-```
-
-Migrations são versionadas em pares `.up.sql`/`.down.sql` em `migrations/`.
-Migration já aplicada nunca é editada: corrige-se com uma nova.
-
 ## Testes
 
 ```sh
@@ -145,14 +148,18 @@ make test-race          # unitários com detector de corrida
 make gates              # gates dos critérios eliminatórios
 make lint
 
-make test-integration   # Postgres, Keycloak e LocalStack reais
+make test-integration   # infraestrutura real em container
 make test-concurrency   # 50 envios paralelos, disputa 80+80, múltiplos processos
 make test-recovery      # interrupção entre commit e remoção, publishers concorrentes
 ```
 
-Os três últimos exigem Docker em execução e usam `testcontainers`: sobem e
-derrubam a infraestrutura sozinhos, sem depender de ambiente pré-montado. Rodam
-sob a build tag `integration`, então `go test ./...` não os inclui.
+Os três últimos rodam sob a build tag `integration`, então `go test ./...` não
+os inclui. Hoje `make test-integration` exige o Keycloak no ar
+(`docker compose up -d keycloak`); a partir da etapa 15 a infraestrutura sobe e
+desce sozinha via `testcontainers`.
+
+`make test-concurrency` e `make test-recovery` ainda não têm cenários — as
+suítes chegam nas etapas 15 e 16.
 
 ## Gates
 
@@ -172,11 +179,12 @@ dispara não prova nada.
 
 | Serviço | Porta |
 |---|---|
-| API | 8080 |
+| API | 8080 (`API_HOST_PORT`) |
 | Postgres | 5440 |
 | Keycloak | 8180 |
 | LocalStack | 4576 |
 | Prometheus | 9091 |
 | Grafana | 3000 |
 
-Ajustáveis pelo `.env`.
+Ajustáveis pelo `.env`. Postgres, LocalStack, Prometheus e Grafana entram nas
+próximas etapas — hoje o compose sobe apenas Keycloak e a aplicação.
