@@ -30,7 +30,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 10 | Outbox e publicação | ✅ |
 | 11 | Consumidor SQS e inbox | ✅ |
 | 12 | Consultas e reconciliação | ✅ |
-| 13 | Observabilidade | ⬜ |
+| 13 | Observabilidade | ✅ |
 | 14 | Documentação de API (Swagger) | ⬜ |
 | 15 | Testes de integração com infraestrutura real | ⬜ |
 | 16 | Concorrência e recuperação | ⬜ |
@@ -201,11 +201,12 @@ dispara não prova nada.
 | Postgres | 5440 |
 | Keycloak | 8180 |
 | LocalStack | 4576 |
+| Métricas da aplicação | 9092 |
 | Prometheus | 9091 |
 | Grafana | 3000 |
 
-Ajustáveis pelo `.env`. Prometheus e Grafana entram nas próximas etapas — hoje o
-compose sobe Keycloak, PostgreSQL, LocalStack e a aplicação.
+Ajustáveis pelo `.env`. O compose padrão sobe Keycloak, PostgreSQL, LocalStack e
+a aplicação; o Prometheus fica atrás de `--profile observability`.
 
 ## Exemplos de chamada
 
@@ -507,6 +508,49 @@ O registro da inbox e o efeito financeiro são gravados **no mesmo commit**, e a
 mensagem só é removida depois dele. Uma interrupção entre o commit e a remoção
 causa reentrega, e a reentrega encontra a inbox concluída: remove sem
 reprocessar.
+
+## Observabilidade
+
+**Logs** em JSON no stdout, carregando os identificadores disponíveis —
+`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`. Nunca
+credencial, dado sensível ou payload financeiro: log carrega identificador, não
+conteúdo. Um gate de CI recusa o build quando um atributo de log usa nome de
+conteúdo.
+
+**Métricas** em porta separada da API, porque métrica revela volume de operação
+e taxa de recusa — e essa superfície não é a de negócio:
+
+```sh
+curl -s localhost:9092/metrics | grep munchkin_
+```
+
+| Métrica | Tipo | O que responde |
+|---|---|---|
+| `munchkin_wager_transactions_total` | counter | Resultados por tipo, status, código de falha e origem |
+| `munchkin_idempotent_replays_total` | counter | Duplicatas, por origem |
+| `munchkin_wager_processing_duration_seconds` | histogram | Latência do caminho financeiro |
+| `munchkin_worker_retries_total` | counter | Retentativas, por worker |
+| `munchkin_messages_dead_lettered_total` | counter | DLQ, por categoria de descarte |
+| `munchkin_concurrency_conflicts_total` | counter | Disputas perdidas, por tipo |
+| `munchkin_outbox_pending_age_seconds` | gauge | Atraso da outbox |
+| `munchkin_reconciliation_divergences_total` | counter | Saldo em desacordo com o ledger |
+
+Nenhum rótulo carrega identificador: além de multiplicar as séries até derrubar
+o coletor, um `walletId` em rótulo publicaria a lista de carteiras para quem
+lesse `/metrics`. Os rótulos são categorias fechadas, conferidas por teste.
+
+O atraso da outbox é a **idade do pendente mais antigo**, não a contagem: mil
+eventos recém-gravados não são problema, e um evento parado há uma hora é.
+
+Para ver a coleta funcionando:
+
+```sh
+docker compose --profile observability up -d
+open http://localhost:9091      # Prometheus, com o alvo munchkin em UP
+```
+
+Grafana, Loki, dashboards e tracing OpenTelemetry são diferenciais opcionais
+pelo §12 e **não foram feitos**.
 
 ## Migrations
 

@@ -743,7 +743,7 @@ A distinção entre os dois casos está coberta por teste: um tratador que entra
 pânico devolve 500 sem vazar a pilha e o serviço continua respondendo; uma
 goroutine que entra em pânico é registrada e o laço prossegue.
 
-## 13. Observabilidade (planejado)
+## 13. Observabilidade
 
 Logs estruturados em JSON no stdout, carregando os identificadores disponíveis —
 correlação, mensagem, transação, carteira, provedor. **Nunca** credencial, dado
@@ -752,6 +752,25 @@ sensível ou payload financeiro completo: log carrega identificador, não conte�
 Métricas expostas para coleta: resultados por status, duplicatas, retentativas,
 DLQ, conflitos de concorrência, atraso da outbox, latência de processamento e
 divergências de reconciliação.
+
+**Em porta separada da API.** Métrica revela volume de operação, número de
+carteiras e taxa de recusa — informação de negócio para quem souber ler. Na
+porta da API, `/metrics` responde 401 sem token e 404 com token: a autenticação
+roda antes do roteamento, então nem a existência da rota vaza.
+
+**Nenhum rótulo carrega identificador.** Os rótulos são categorias fechadas —
+tipo, status, código de falha, origem, worker, motivo. Um `walletId` em rótulo
+criaria uma série por carteira e publicaria a lista delas para quem lesse
+`/metrics`. A regra é conferida por teste, percorrendo a coleta e comparando
+cada nome de rótulo contra uma lista permitida.
+
+**O atraso da outbox é idade, não contagem.** Contar pendentes não distingue mil
+eventos recém-gravados de um evento parado há uma hora, e é o segundo que indica
+problema.
+
+A camada de aplicação não conhece Prometheus: chama uma porta estreita, como faz
+com persistência e transporte, e existe uma implementação nula para composição
+sem observabilidade.
 
 Health checks separam vivacidade do processo de prontidão das dependências.
 
@@ -819,10 +838,13 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado do
 `README.md` é a fonte precisa; aqui ficam as pendências que merecem comentário.
 
-- As etapas 13 a 16 da tabela do `README.md` ainda não foram implementadas:
-  observabilidade, Swagger e as suítes finais de integração e recuperação.
-- A **métrica** de divergência de reconciliação que o §12 pede ainda não existe.
-  A divergência já é reportada na resposta e no log com nível de erro; o
-  contador entra junto do registro Prometheus, na etapa 13.
+- As etapas 14 a 16 da tabela do `README.md` ainda não foram implementadas:
+  documentação de API (Swagger) e as suítes finais de integração e recuperação.
+- **Grafana, Loki, dashboards e tracing OpenTelemetry não foram feitos.** O §12
+  os trata como diferencial opcional, e o núcleo ainda tem etapas de verificação
+  pela frente. Ficam declarados como não feitos, e não meio feitos.
+- O contador de conflito por versão de carteira é **inalcançável** no desenho
+  atual: o lock da linha impede que a versão mude sob a transação. Ele existe
+  como sintoma — se um dia subir, alguma escrita escapou do caminho travado.
 - Tracing distribuído e testes de carga são diferenciais opcionais e só serão
   considerados depois de o núcleo estar completo e verificado.
