@@ -98,7 +98,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields gate-env-documented
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -201,6 +201,27 @@ gate-publish-after-commit:
 	if [ -n "$$deps" ]; then \
 	  echo "✗ o caminho transacional alcança o publicador:"; echo "$$deps" | sed 's/^/    /'; exit 1; fi; \
 	echo "✓ publicação fora da transação"
+
+## gate-env-documented: variável obrigatória aparece no .env.example e no README
+##
+## Existe porque o erro aconteceu duas vezes: tornar uma variável obrigatória —
+## que é o certo, configuração incompleta tem de recusar a subida — invalidou o
+## comando que o README documenta para rodar fora do container, e nas duas vezes
+## isso só apareceu quando alguém foi rodar o que estava escrito.
+##
+## Um leitor encontra a instrução quebrada na primeira página do repositório.
+## Disciplina já falhou aqui; agora falha o build.
+gate-env-documented:
+	@faltando=""; \
+	for v in $$(grep -oE 'v\.required\("[A-Z_]+"\)' internal/config/config.go \
+	            | sed 's/.*"\(.*\)".*/\1/' | sort -u); do \
+	  grep -qE "^$$v=" .env.example || faltando="$$faltando .env.example:$$v"; \
+	  grep -qE "(^|[[:space:]])$$v=" README.md || faltando="$$faltando README.md:$$v"; \
+	done; \
+	if [ -n "$$faltando" ]; then \
+	  echo "✗ variável obrigatória não documentada:"; \
+	  for f in $$faltando; do echo "    $$f"; done; exit 1; fi; \
+	echo "✓ variáveis obrigatórias documentadas"
 
 ## gate-hash-fields: campos do hash de idempotência iguais aos do ARCHITECTURE
 # O conjunto de campos é contrato: acrescentar um muda a identidade de TODA

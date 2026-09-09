@@ -85,6 +85,7 @@ AWS_ACCESS_KEY_ID=local-only-access-key \
 AWS_SECRET_ACCESS_KEY=local-only-secret-key \
 AWS_EVENTS_QUEUE_URL=http://localhost:4576/000000000000/wager-events.fifo \
 AWS_TRANSACTIONS_QUEUE_URL=http://localhost:4576/000000000000/wager-transactions.fifo \
+AWS_TRANSACTIONS_DLQ_URL=http://localhost:4576/000000000000/wager-transactions-dlq.fifo \
 ./bin/api
 ```
 
