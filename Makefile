@@ -98,7 +98,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields gate-env-documented
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-app-pure gate-publish-after-commit gate-fiber-ctx gate-failure-codes gate-hash-fields gate-env-documented gate-log-clean
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -222,6 +222,23 @@ gate-env-documented:
 	  echo "✗ variável obrigatória não documentada:"; \
 	  for f in $$faltando; do echo "    $$f"; done; exit 1; fi; \
 	echo "✓ variáveis obrigatórias documentadas"
+
+## gate-log-clean: log carrega identificador, não conteúdo (§12)
+##
+## O §12 proíbe registrar credencial, dado sensível ou payload financeiro
+## completo. Isso era regra escrita desde a etapa 01 e dependia de eu lembrar.
+## O gate recusa um atributo de log cujo NOME sugira conteúdo — senha, segredo,
+## token, autorização, corpo, payload — em vez de identificador.
+##
+## Só olha o nome do atributo. Um valor sensível guardado sob nome inocente
+## passa, e por isso o gate não substitui a revisão; ele fecha o caminho fácil.
+gate-log-clean:
+	@ruim=$$(grep -rnE 'slog\.(String|Int|Int64|Any|Bool|Duration|Float64|Group)\("[^"]*(pass|senha|secret|segredo|token|authorization|credential|apikey|payload|body|corpo)[^"]*"' \
+	  --include='*.go' internal cmd pkg 2>/dev/null | grep -v '_test\.go' || true); \
+	if [ -n "$$ruim" ]; then \
+	  echo "✗ atributo de log com nome de conteúdo, não de identificador:"; \
+	  echo "$$ruim" | sed 's/^/    /'; exit 1; fi; \
+	echo "✓ log carrega identificador, não conteúdo"
 
 ## gate-hash-fields: campos do hash de idempotência iguais aos do ARCHITECTURE
 # O conjunto de campos é contrato: acrescentar um muda a identidade de TODA
