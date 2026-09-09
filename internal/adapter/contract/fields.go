@@ -8,7 +8,12 @@
 // que é a mesma.
 package contract
 
-import "github.com/Lauiskk/munchkin/pkg/apperr"
+import (
+	"errors"
+	"strings"
+
+	"github.com/Lauiskk/munchkin/pkg/apperr"
+)
 
 // Fields acumula erros por campo e os converte em erro de validação.
 //
@@ -36,4 +41,19 @@ func (f *Fields) Err() error {
 		return nil
 	}
 	return apperr.Validation(f.erros...)
+}
+
+// Merge incorpora os erros de campo de outro erro de validação, prefixando os
+// nomes. É o que permite reaproveitar um decode aninhado sem perder de vista
+// onde, no documento recebido, o campo problemático estava.
+func (f *Fields) Merge(prefixo string, err error) {
+	var v *apperr.Error
+	if !errors.As(err, &v) || len(v.Fields) == 0 {
+		f.Add(strings.TrimSuffix(prefixo, "."), err.Error(), apperr.FieldCodeInvalidValue)
+		return
+	}
+	for _, campo := range v.Fields {
+		campo.Field = prefixo + campo.Field
+		f.erros = append(f.erros, campo)
+	}
 }
