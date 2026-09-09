@@ -24,6 +24,9 @@ import (
 
 // relogioFixo torna o instante previsível, para que dois registros gravados na
 // mesma operação possam ser comparados.
+// agoraFixo é o instante usado pelos testes que precisam de tempo previsível.
+var agoraFixo = time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+
 type relogioFixo struct{ t time.Time }
 
 func (r relogioFixo) Now() time.Time { return r.t }
