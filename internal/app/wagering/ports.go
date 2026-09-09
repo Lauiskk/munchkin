@@ -42,6 +42,13 @@ type TransactionRepository interface {
 	FindByID(ctx context.Context, id domain.TransactionID) (*domain.Transaction, error)
 	// FindByProviderExternalID busca pela identidade da operação no provedor.
 	FindByProviderExternalID(ctx context.Context, p domain.ProviderID, e domain.ExternalID) (*domain.Transaction, error)
+	// FindProcessedReversalOf busca a reversão já concluída de uma referência.
+	//
+	// Existe para que "esta referência já foi revertida" seja respondido como
+	// recusa de negócio, com código próprio, e não como o erro do índice único
+	// que existe para impedir a segunda gravação. O índice continua sendo a
+	// autoridade; esta consulta é o que produz a resposta legível.
+	FindProcessedReversalOf(ctx context.Context, ref domain.TransactionID) (*domain.Transaction, error)
 }
 
 // LedgerRepository grava lançamentos. Só grava: o ledger é append-only.

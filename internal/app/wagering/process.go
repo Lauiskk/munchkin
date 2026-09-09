@@ -16,6 +16,10 @@ import (
 	"github.com/Lauiskk/munchkin/pkg/correlation"
 )
 
+// primeiroBackoff é a espera até a primeira retomada de uma referência
+// pendente. As seguintes crescem exponencialmente, com teto — ver o worker.
+const primeiroBackoff = 5 * time.Second
+
 var (
 	// ErrIdempotencyConflict indica reuso de chave com conteúdo diferente, ou
 	// a mesma operação enviada com outra chave. Nada é gravado.
@@ -177,17 +181,56 @@ func (p *Processor) executar(ctx context.Context, in Input, hash []byte) (Output
 	return p.aplicar(ctx, w, operacao, agora)
 }
 
-// aplicar executa a movimentação e grava tudo.
+// aplicar decide e grava.
 func (p *Processor) aplicar(
 	ctx context.Context, w *wallet.Wallet, operacao *domain.Transaction, agora time.Time,
 ) (Output, error) {
+	// A versão é capturada ANTES de decidir, porque decidir MUTA a carteira: um
+	// débito ou crédito já incrementa a versão do agregado. Capturá-la depois
+	// faria o UPDATE condicionado procurar pela versão nova e não encontrar
+	// linha nenhuma. Foi exatamente o defeito que a primeira versão desta
+	// refatoração introduziu, e que só o banco revelou.
 	versaoAnterior := w.Version()
 
-	movimento, recusa, err := p.movimentar(w, operacao, agora)
+	d, err := p.decidir(ctx, w, operacao, agora)
 	if err != nil {
 		return Output{}, err
 	}
+	return p.aplicarDecisao(ctx, w, operacao, d, versaoAnterior, agora)
+}
 
+// aplicarDecisao grava o desfecho já decidido.
+//
+// É separado de aplicar para que o resolvedor de pendências reaproveite
+// exatamente este caminho. Se a retomada gravasse por conta própria, ela e a
+// entrada direta divergiriam com o tempo — e o sistema passaria a dar respostas
+// diferentes para a mesma operação conforme o caminho por onde ela entrou.
+func (p *Processor) aplicarDecisao(
+	ctx context.Context, w *wallet.Wallet, operacao *domain.Transaction,
+	d decisao, versaoAnterior int64, agora time.Time,
+) (Output, error) {
+
+	// A referência ainda não chegou. A operação é persistida como pendente e um
+	// worker retoma depois — inclusive após reinício, porque o estado está no
+	// banco e não na memória deste processo.
+	if d.aguardar {
+		if err := operacao.MarkPendingReference(agora.Add(primeiroBackoff), agora); err != nil {
+			return Output{}, err
+		}
+		if err := p.transactions.Settle(ctx, operacao); err != nil {
+			return Output{}, err
+		}
+		if err := p.publicarPendencia(ctx, operacao, agora); err != nil {
+			return Output{}, err
+		}
+		return Output{
+			TransactionID: operacao.ID(),
+			Status:        domain.PendingReference,
+			Balance:       w.Balance(),
+		}, nil
+	}
+
+	movimento, recusa := d.movimento, d.recusa
 	if recusa != "" {
 		// Recusa de negócio COMMITA. O registro terminal e o evento precisam
 		// sobreviver, senão o provedor reenviaria para sempre uma operação que
@@ -244,39 +287,159 @@ func (p *Processor) aplicar(
 	}, nil
 }
 
-// movimentar pede ao domínio a movimentação correspondente ao tipo.
-//
-// Devolve (movimento, "", nil) quando aplicou, (nil, código, nil) quando o
-// domínio recusou, e (nil, "", erro) quando algo inesperado aconteceu.
-func (p *Processor) movimentar(
-	w *wallet.Wallet, operacao *domain.Transaction, agora time.Time,
-) (*wallet.Movement, domain.FailureCode, error) {
+// decisao é o que o domínio resolveu para a operação.
+type decisao struct {
+	movimento *wallet.Movement
+	recusa    domain.FailureCode
+	// aguardar indica que a referência ainda não chegou.
+	aguardar bool
+}
+
+// decidir pede ao domínio o desfecho correspondente ao tipo.
+func (p *Processor) decidir(
+	ctx context.Context, w *wallet.Wallet, operacao *domain.Transaction, agora time.Time,
+) (decisao, error) {
 	switch operacao.Kind() {
 	case domain.Bet:
 		mv, err := w.Debit(operacao.Amount(), agora)
 		if errors.Is(err, wallet.ErrInsufficientFunds) {
-			return nil, domain.FailureInsufficientFunds, nil
+			return decisao{recusa: domain.FailureInsufficientFunds}, nil
 		}
 		if err != nil {
-			return nil, "", err
+			return decisao{}, err
 		}
-		return &mv, "", nil
+		return decisao{movimento: &mv}, nil
 
 	case domain.Win:
 		mv, err := w.Credit(operacao.Amount(), agora)
 		if err != nil {
-			return nil, "", err
+			return decisao{}, err
 		}
-		return &mv, "", nil
+		return decisao{movimento: &mv}, nil
 
 	case domain.Loss:
 		// LOSS conclui sem movimentar: o dinheiro já saiu na aposta. Sem
 		// movimentação não há lançamento, e a versão da carteira não avança.
-		return nil, "", nil
+		return decisao{}, nil
+
+	case domain.Refund, domain.Rollback:
+		return p.reverter(ctx, w, operacao, agora)
 
 	default:
-		return nil, "", fmt.Errorf("tipo %s não é tratado nesta etapa", operacao.Kind())
+		return decisao{}, fmt.Errorf("tipo %s não é tratado", operacao.Kind())
 	}
+}
+
+// reverter resolve a referência e aplica o movimento contrário ao original.
+func (p *Processor) reverter(
+	ctx context.Context, w *wallet.Wallet, operacao *domain.Transaction, agora time.Time,
+) (decisao, error) {
+	origem := operacao.Origin()
+
+	// Uma operação não reverte a si mesma. Sem esta guarda, a busca encontraria
+	// a própria linha recém-inserida e a reversão se auto-referenciaria.
+	if operacao.ReferenceExternalID() == origem.ExternalID {
+		return decisao{recusa: domain.FailureReferenceMismatch}, nil
+	}
+
+	// A referência é buscada pelo provedor da OPERAÇÃO, que veio do token. Sem
+	// isso, um provedor estornaria a aposta de outro informando o identificador
+	// dela.
+	ref, err := p.transactions.FindByProviderExternalID(
+		ctx, origem.ProviderID, operacao.ReferenceExternalID())
+	if errors.Is(err, app.ErrNotFound) {
+		return decisao{aguardar: true}, nil
+	}
+	if err != nil {
+		return decisao{}, err
+	}
+
+	if recusa := conferirReferencia(operacao, ref); recusa != "" {
+		return decisao{recusa: recusa}, nil
+	}
+
+	switch ref.Status() {
+	case domain.Processed:
+		// Segue.
+	case domain.Pending, domain.PendingReference:
+		// A referência existe mas ainda não tem desfecho. Aguardar é o certo:
+		// o desfecho dela ainda pode mudar, e recusar agora tornaria a ordem de
+		// chegada das mensagens parte da regra de negócio.
+		return decisao{aguardar: true}, nil
+	default:
+		// Recusada ou falha permanente: não há o que reverter.
+		return decisao{recusa: domain.FailureReferenceNotProcessed}, nil
+	}
+
+	// No máximo uma reversão bem-sucedida por referência. Sem esta guarda, um
+	// REFUND e um ROLLBACK da mesma aposta devolveriam o mesmo débito duas
+	// vezes — e o banco recusaria a segunda gravação com uma violação de índice
+	// único, que vira erro interno em vez de resposta compreensível.
+	//
+	// A consulta não corre risco de corrida porque a carteira já está travada
+	// desde o início da transação, e a reversão concorrente disputaria a mesma
+	// carteira: a referência só passa por conferirReferencia se pertencer a
+	// ela. Sob READ COMMITTED, quem chega depois lê o commit de quem passou.
+	switch _, err := p.transactions.FindProcessedReversalOf(ctx, ref.ID()); {
+	case err == nil:
+		return decisao{recusa: domain.FailureReferenceAlreadyReversed}, nil
+	case !errors.Is(err, app.ErrNotFound):
+		return decisao{}, err
+	}
+
+	if err := operacao.ResolveReference(ref.ID()); err != nil {
+		return decisao{}, err
+	}
+
+	// O movimento é o contrário do original: reverter uma aposta credita,
+	// reverter um ganho debita.
+	if ref.Kind().CreditsWallet() {
+		mv, err := w.Debit(operacao.Amount(), agora)
+		if errors.Is(err, wallet.ErrInsufficientFunds) {
+			// Código PRÓPRIO, distinto do de aposta sem saldo. Para quem
+			// audita, "o jogador não tinha saldo para apostar" e "o dinheiro já
+			// saiu da carteira, não dá para estornar" são situações diferentes.
+			return decisao{recusa: domain.FailureReversalInsufficientFunds}, nil
+		}
+		if err != nil {
+			return decisao{}, err
+		}
+		return decisao{movimento: &mv}, nil
+	}
+
+	mv, err := w.Credit(operacao.Amount(), agora)
+	if err != nil {
+		return decisao{}, err
+	}
+	return decisao{movimento: &mv}, nil
+}
+
+// conferirReferencia valida que operação e referência descrevem o mesmo negócio.
+func conferirReferencia(operacao, ref *domain.Transaction) domain.FailureCode {
+	if !operacao.Kind().CanReverse(ref.Kind()) {
+		return domain.FailureReferenceMismatch
+	}
+
+	origem, refOrigem := operacao.Origin(), ref.Origin()
+	if refOrigem == nil || origem.ProviderID != refOrigem.ProviderID {
+		return domain.FailureReferenceMismatch
+	}
+	if origem.RoundID != refOrigem.RoundID {
+		return domain.FailureReferenceMismatch
+	}
+	if operacao.WalletID() != ref.WalletID() || operacao.PlayerID() != ref.PlayerID() {
+		return domain.FailureReferenceMismatch
+	}
+	if operacao.Amount().Currency() != ref.Amount().Currency() {
+		return domain.FailureCurrencyMismatch
+	}
+
+	// Reversão parcial está fora do escopo: valor menor seria devolução
+	// incompleta, maior seria criar dinheiro.
+	if !operacao.Amount().Equal(ref.Amount()) {
+		return domain.FailureAmountMismatch
+	}
+	return ""
 }
 
 // decidirReplay resolve o que fazer quando a identidade já estava ocupada.
@@ -361,6 +524,21 @@ func (p *Processor) publicarConclusao(
 		WalletVersion: w.Version(),
 		ChangedAt:     agora,
 	}, corr)
+}
+
+func (p *Processor) publicarPendencia(ctx context.Context, operacao *domain.Transaction, agora time.Time) error {
+	origem := operacao.Origin()
+	return p.enfileirar(ctx, event.WagerTransactionPendingReference{
+		TransactionID:       operacao.ID(),
+		WalletID:            operacao.WalletID(),
+		PlayerID:            operacao.PlayerID(),
+		Kind:                operacao.Kind(),
+		Money:               operacao.Amount(),
+		ProviderID:          origem.ProviderID,
+		ExternalID:          origem.ExternalID,
+		ReferenceExternalID: operacao.ReferenceExternalID(),
+		PendingSince:        agora,
+	}, correlation.From(ctx))
 }
 
 func (p *Processor) publicarRecusa(ctx context.Context, operacao *domain.Transaction, agora time.Time) error {

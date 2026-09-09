@@ -298,6 +298,30 @@ func (r *TransactionRepository) FindByProviderExternalID(
 	return row.toDomain()
 }
 
+// FindProcessedReversalOf busca a reversão concluída de uma referência.
+//
+// A cláusula reproduz exatamente o predicado de wager_transactions_single_reversal_uk
+// (status PROCESSED e kind de reversão), então a consulta usa aquele índice e
+// pergunta ao banco a mesma coisa que ele garante.
+func (r *TransactionRepository) FindProcessedReversalOf(
+	ctx context.Context, ref wagering.TransactionID,
+) (*wagering.Transaction, error) {
+	var row transactionRow
+	err := r.db.Session(ctx).Raw(`
+		SELECT * FROM wager_transactions
+		 WHERE reference_transaction_id = ?
+		   AND status = 'PROCESSED'
+		   AND kind IN ('REFUND', 'ROLLBACK')`,
+		uuid.UUID(ref)).Scan(&row).Error
+	if err != nil {
+		return nil, classify(err)
+	}
+	if row.ID == uuid.Nil {
+		return nil, fmt.Errorf("%w: reversão de %s", app.ErrNotFound, uuid.UUID(ref))
+	}
+	return row.toDomain()
+}
+
 // Settle grava o desfecho de uma transação.
 //
 // Só avança de PENDING ou PENDING_REFERENCE: a cláusula de estado na condição é
