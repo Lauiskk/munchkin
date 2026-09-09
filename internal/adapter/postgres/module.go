@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
+	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/logs"
 )
@@ -75,6 +76,19 @@ var Module = fx.Module("postgres",
 	fx.Provide(
 		Open,
 		fx.Annotate(newReadinessCheck, fx.ResultTags(`group:"readiness"`)),
+
+		// Repositórios concretos ligados às portas que os casos de uso
+		// declararam. É aqui, e só aqui, que a implementação encontra a
+		// interface: o caso de uso nunca vê o tipo concreto.
+		NewWalletRepository,
+		NewTransactionRepository,
+		NewLedgerRepository,
+		NewOutboxRepository,
+		func(r *WalletRepository) appwallet.Repository { return r },
+		func(r *TransactionRepository) appwallet.TransactionRepository { return r },
+		func(r *LedgerRepository) appwallet.LedgerRepository { return r },
+		func(r *OutboxRepository) appwallet.OutboxRepository { return r },
+		func(db *Database) appwallet.TxManager { return db },
 	),
 	fx.Invoke(register),
 )
