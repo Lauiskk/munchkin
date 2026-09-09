@@ -409,7 +409,7 @@ acontecer.
 `ON CONFLICT` dispensa, e abriria a possibilidade de duas tabelas divergirem
 sobre o mesmo fato.
 
-## 7. Referências ainda indisponíveis (planejado)
+## 7. Referências ainda indisponíveis
 
 Uma reversão cuja referência ainda não chegou é persistida como
 `PENDING_REFERENCE`, com o evento correspondente, e a resposta indica
@@ -446,7 +446,22 @@ CREATE UNIQUE INDEX ON wager_transactions (reference_transaction_id)
   WHERE status = 'PROCESSED' AND kind IN ('REFUND','ROLLBACK');
 ```
 
-Uma segunda reversão, de qualquer tipo, é rejeitada com código próprio.
+Uma segunda reversão, de qualquer tipo, é rejeitada com
+`REFERENCE_ALREADY_REVERSED`.
+
+Quem **responde** é uma consulta, feita com a carteira já travada; quem
+**garante** é o índice. A distinção importa: o índice sozinho abortaria a
+transação e devolveria erro interno, sem registro nem evento. Com a carteira
+travada não há corrida entre a consulta e a gravação — toda reversão da mesma
+referência disputa a mesma carteira, e sob `READ COMMITTED` quem adquire o lock
+depois lê o commit de quem passou antes.
+
+Isso **não** contradiz a regra de não consultar antes de inserir, aplicada à
+idempotência e à abertura de carteira. Lá a corrida é entre duas inserções da
+mesma chave, e nenhuma consulta prévia fecha a janela entre o `SELECT` e o
+`INSERT`. Aqui a condição está em outra linha, e existe um lock cobrindo a
+janela. O critério é esse: consultar antes só é correto quando algo serializa os
+concorrentes.
 
 **Saldo insuficiente na reversão** tem código de falha **distinto** do usado
 para aposta sem saldo. São situações diferentes: a aposta foi recusada por

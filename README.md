@@ -26,7 +26,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 06 | Agregados de domínio | ✅ |
 | 07 | Abertura de carteira | ✅ |
 | 08 | Operação financeira e idempotência | ✅ |
-| 09 | Reversões e referências pendentes | ⬜ |
+| 09 | Reversões e referências pendentes | ✅ |
 | 10 | Outbox e publicação | ⬜ |
 | 11 | Consumidor SQS e inbox | ⬜ |
 | 12 | Consultas e reconciliação | ⬜ |
@@ -278,6 +278,46 @@ movimentado depois.
 | Sem escopo, ou `providerId` divergente do token | 403 | `FORBIDDEN` |
 | Chave reutilizada com outro conteúdo, ou operação com outra chave | 409 | `CONFLICT` |
 | Recusa de negócio | 422 | `status: REJECTED` com `failureCode` |
+| Reversão esperando a referência | 202 | `status: PENDING_REFERENCE` |
+
+### Reversões
+
+`REFUND` e `ROLLBACK` usam o mesmo endpoint e exigem
+`referenceExternalTransactionId` — o `externalTransactionId` da operação a
+reverter, no mesmo provedor. `REFUND` reverte apenas `BET`; `ROLLBACK` reverte
+`BET`, `WIN` e `REFUND`.
+
+```sh
+curl -s -X POST localhost:8080/wagering/transactions \
+  -H "Authorization: Bearer $PA" \
+  -H "Idempotency-Key: provider-a:refund-123" \
+  -H 'Content-Type: application/json' \
+  -d '{"providerId":"provider-a","externalTransactionId":"refund-123",
+       "playerId":"0192f28f-...","walletId":"0192f291-...",
+       "roundId":"round-987","gameId":"fortune-chimp",
+       "kind":"REFUND","money":{"amount":"25.00","currency":"BRL"},
+       "referenceExternalTransactionId":"transaction-123"}'
+```
+
+A reversão tem de concordar com a referência em provedor, jogador, carteira,
+moeda, rodada **e valor** — reversão parcial está fora do escopo. Cada
+referência aceita **no máximo uma reversão bem-sucedida**; a segunda é recusada
+com `REFERENCE_ALREADY_REVERSED`.
+
+Se a referência ainda não chegou, a operação **não é recusada**: é persistida
+como `PENDING_REFERENCE` e respondida com **202**. Um worker presente em todas
+as instâncias retoma a pendência com backoff exponencial; quando a referência
+chega, a reversão conclui e emite os eventos normalmente. Esgotado o limite de
+tentativas, ela termina `REJECTED` com `REFERENCE_NOT_FOUND`.
+
+| Recusa | `failureCode` |
+|---|---|
+| A referência já foi revertida | `REFERENCE_ALREADY_REVERSED` |
+| Tipo, provedor, jogador, carteira ou rodada divergentes | `REFERENCE_MISMATCH` |
+| Valor diferente do referenciado | `AMOUNT_MISMATCH` |
+| A referência terminou sem sucesso | `REFERENCE_NOT_PROCESSED` |
+| A referência não chegou no prazo | `REFERENCE_NOT_FOUND` |
+| Reverter deixaria a carteira negativa | `REVERSAL_INSUFFICIENT_FUNDS` |
 
 Consultas, restritas ao provedor do token:
 
