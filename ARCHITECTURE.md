@@ -419,6 +419,35 @@ para aposta sem saldo. São situações diferentes: a aposta foi recusada por
 limite do jogador; a reversão foi recusada porque o dinheiro já saiu da
 carteira — e o operador precisa distinguir as duas na auditoria.
 
+### 8.1 Catálogo de códigos de falha
+
+Toda recusa devolve um código estável. É contrato: uma vez publicado, o código
+não muda de significado, porque o provedor decide o que fazer com base nele e
+alterar o sentido quebraria integração alheia em silêncio.
+
+A coluna **corrigível** é o que o §7 pede para distinguir: entrada que o provedor
+pode ajustar e reenviar, versus resultado definitivo.
+
+| Código | Significado | Corrigível pelo provedor? |
+|---|---|---|
+| `INSUFFICIENT_FUNDS` | A aposta excede o saldo do jogador | Não — depende do jogador depositar |
+| `REVERSAL_INSUFFICIENT_FUNDS` | A reversão precisaria debitar mais que o saldo disponível | Não — o dinheiro já saiu da carteira |
+| `REFERENCE_NOT_FOUND` | A referência não chegou dentro do prazo de espera | Sim — reenviar a operação referenciada e depois a reversão |
+| `REFERENCE_NOT_PROCESSED` | A referência existe mas terminou sem sucesso | Não — não há o que reverter |
+| `REFERENCE_ALREADY_REVERSED` | A referência já foi revertida | Não — reverter de novo devolveria o mesmo débito duas vezes |
+| `REFERENCE_MISMATCH` | A referência diverge em provedor, jogador, carteira, moeda ou rodada | Sim — corrigir o identificador referenciado |
+| `AMOUNT_MISMATCH` | O valor da reversão difere do referenciado | Sim — reversão parcial está fora do escopo; enviar o valor integral |
+| `CURRENCY_MISMATCH` | A moeda diverge da carteira | Sim — corrigir a moeda |
+| `WALLET_NOT_FOUND` | A carteira indicada não existe | Sim — corrigir o identificador |
+| `WALLET_PLAYER_MISMATCH` | A carteira não pertence ao jogador informado | Sim — corrigir jogador ou carteira |
+| `INVALID_AMOUNT_FOR_KIND` | O valor não é o exigido pelo tipo (`LOSS` exige zero; os demais, positivo) | Sim — corrigir o valor |
+| `INTERNAL_ERROR` | Falha permanente de infraestrutura, registrada para auditoria | Não — o registro existe para o operador investigar |
+
+Os dois primeiros são deliberadamente distintos, como o §7 exige. Para quem
+audita, "o jogador não tinha saldo para apostar" e "o dinheiro já saiu da
+carteira, não dá para estornar" são situações diferentes, e um código único
+apagaria a diferença.
+
 ## 9. Inbox e outbox
 
 **Outbox.** Os eventos entram na tabela de outbox **dentro** da transação que os
@@ -443,6 +472,66 @@ registro de inbox já concluído: remove a mensagem sem reprocessar.
 
 Reentrega com hash divergente para a mesma identidade de mensagem é tratada como
 mensagem inválida, não como atualização.
+
+### 9.1 Eventos publicados
+
+Quatro eventos, cada um com tipo e versão declarados pelo próprio conteúdo — o
+chamador não escolhe nenhum dos dois, então não existe a possibilidade de
+publicar um evento com o tipo de outro.
+
+| Evento | Gatilho |
+|---|---|
+| `WagerTransactionProcessed` | Conclusão bem-sucedida, **inclusive `LOSS`** — que conclui sem movimentar a carteira |
+| `WagerTransactionRejected` | Recusa definitiva por regra de negócio, com o código de falha |
+| `WagerTransactionPendingReference` | Registro da espera por uma referência ainda indisponível |
+| `WalletBalanceChanged` | Alteração **efetiva** do saldo — `LOSS` não produz este evento |
+
+**Envelope**, comum aos quatro:
+
+```json
+{
+  "eventId":       "0192f2a1-...",
+  "eventType":     "WalletBalanceChanged",
+  "aggregateType": "wallet",
+  "aggregateId":   "0192f291-...",
+  "correlationId": "01a083fe-...",
+  "causationId":   null,
+  "occurredAt":    "2026-09-09T12:00:00.000Z",
+  "version":       1,
+  "data":          { }
+}
+```
+
+**A carteira é o agregado dos quatro**, inclusive dos três que falam de uma
+transação. Não é só mecânica: uma aposta recusada por saldo é um fato sobre
+aquela carteira, e quem acompanha uma carteira quer os quatro na ordem em que
+aconteceram. De quebra, o `aggregateId` já é a chave de particionamento que a
+fila FIFO precisa — eventos da mesma carteira em ordem, carteiras distintas em
+paralelo.
+
+**Conteúdo de `WalletBalanceChanged`**, com os campos que o §11 nomeia:
+
+```json
+{
+  "walletId":      "0192f291-...",
+  "transactionId": "0192f298-...",
+  "direction":     "DEBIT",
+  "money":         { "amount": "80.00", "currency": "BRL" },
+  "balanceBefore": { "amount": "100.00", "currency": "BRL" },
+  "balanceAfter":  { "amount": "20.00", "currency": "BRL" },
+  "walletVersion": 2,
+  "changedAt":     "2026-09-09T12:00:00.000Z"
+}
+```
+
+Instantes em RFC 3339 UTC; valores monetários em string decimal, nunca número
+JSON — número vira ponto flutuante na maioria dos leitores, e o valor perderia
+precisão antes de o consumidor sequer olhá-lo.
+
+O `eventId` é estável e **sobrevive a republicação**: uma queda entre publicar e
+confirmar faz o evento sair de novo com o mesmo identificador, e é por ele que o
+consumidor deduplica. Sem essa estabilidade, *at-least-once* viraria duplicata
+de verdade.
 
 ## 10. Autenticação
 

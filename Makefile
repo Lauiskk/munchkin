@@ -98,7 +98,7 @@ lint:
 # ---------------------------------------------------------------------------
 
 ## gates: roda todos os gates dos critérios eliminatórios
-gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-fiber-ctx
+gates: gate-fmt gate-vet gate-deps gate-no-float gate-domain-pure gate-fiber-ctx gate-failure-codes
 	@echo "✓ todos os gates passaram"
 
 ## gate-fmt: código formatado com gofmt (§15)
@@ -159,6 +159,19 @@ gate-private-docs:
 	  echo "$$hits"; exit 1; fi; \
 	echo "✓ nenhum documento de trabalho versionado"
 
+## gate-failure-codes: catálogo de falhas do código igual ao do ARCHITECTURE (§7)
+# O §7 exige que todo failureCode seja estável e DOCUMENTADO. Documentação que
+# desatualiza em silêncio é pior que documentação nenhuma: ela descreve um
+# sistema que não existe. Este gate compara as duas listas.
+gate-failure-codes:
+	@codigo=$$(grep -oE 'FailureCode = "[A-Z_]+"' internal/domain/wagering/kind.go \
+	  | grep -oE '"[A-Z_]+"' | tr -d '"' | sort -u); \
+	doc=$$(grep -oE '^\| `[A-Z_]+` \|' ARCHITECTURE.md | grep -oE '[A-Z_]+' | sort -u); \
+	if [ "$$codigo" != "$$doc" ]; then \
+	  echo "✗ o catálogo de códigos de falha diverge entre o código e o ARCHITECTURE:"; \
+	  diff <(echo "$$codigo") <(echo "$$doc") | sed 's/^/    /'; exit 1; fi; \
+	echo "✓ catálogo de falhas documentado"
+
 ## gate-fiber-ctx: handlers usam c.UserContext(), nunca c.Context()
 # Exceção única, marcada com `gate:allow-fiber-ctx` na mesma linha: o middleware
 # que deriva o context.Context da aplicação precisa ler o do fasthttp uma vez.
@@ -173,4 +186,4 @@ gate-fiber-ctx:
 
 .PHONY: help fuzz up down logs ps migrate-up migrate-down migrate-down-all migrate-status build tidy test test-race test-integration test-concurrency \
         test-recovery lint gates gate-fmt gate-vet gate-no-float \
-        gate-domain-pure gate-fiber-ctx gate-deps
+        gate-domain-pure gate-fiber-ctx gate-deps gate-failure-codes
