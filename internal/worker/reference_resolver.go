@@ -20,12 +20,56 @@ import (
 )
 
 // startReferenceResolver amarra o resolvedor de referências ao ciclo de vida.
-//
-// O encerramento é observável: o worker recebe o cancelamento e o OnStop espera
-// por ele antes de devolver. Sem a espera, a aplicação fecharia com uma
-// goroutine ainda em pé e o pool do banco poderia ser fechado sob ela.
 func startReferenceResolver(
 	lc fx.Lifecycle, resolver *appwagering.Resolver, cfg config.Config, log *slog.Logger,
+) {
+	iniciar(lc, "reference.resolver", resolver.RunOnce, cfg.Worker.ReferenceInterval, log)
+}
+
+// varredura é uma rodada de trabalho de fundo: devolve quantos itens tratou.
+type varredura func(ctx context.Context) (int, error)
+
+func laco(ctx context.Context, nome string, rodar varredura, intervalo time.Duration, log *slog.Logger) {
+	ticker := time.NewTicker(intervalo)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rodada(ctx, nome, rodar, log)
+		}
+	}
+}
+
+// rodada executa uma varredura, protegida contra pânico.
+//
+// O recover é por ITERAÇÃO: um pânico ao tratar um item específico não pode
+// encerrar o worker, senão uma única linha problemática tiraria o processo de
+// fundo do ar até o próximo reinício.
+func rodada(ctx context.Context, nome string, rodar varredura, log *slog.Logger) {
+	defer safe.Recover(ctx, log, nome)
+
+	tratados, err := rodar(ctx)
+	if err != nil && ctx.Err() == nil {
+		log.LogAttrs(ctx, slog.LevelError, "worker.round_failed",
+			slog.String("worker", nome),
+			slog.String(logs.KeyError, err.Error()))
+		return
+	}
+	if tratados > 0 {
+		log.LogAttrs(ctx, slog.LevelInfo, "worker.round",
+			slog.String("worker", nome),
+			slog.Int("processed", tratados))
+	}
+}
+
+// iniciar é o esqueleto comum: sobe a goroutine no OnStart e espera por ela no
+// OnStop. Sem a espera, a aplicação fecharia com uma goroutine ainda em pé e o
+// pool do banco poderia ser fechado sob ela.
+func iniciar(
+	lc fx.Lifecycle, nome string, rodar varredura, intervalo time.Duration, log *slog.Logger,
 ) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -35,59 +79,29 @@ func startReferenceResolver(
 			wg.Add(1)
 			// safe.Go porque um pânico em goroutine não é alcançado pelo
 			// recover de quem a iniciou: derrubaria o processo inteiro.
-			safe.Go(ctx, log, "reference.resolver", func() {
+			safe.Go(ctx, log, nome, func() {
 				defer wg.Done()
-				laco(ctx, resolver, cfg.Worker.ReferenceInterval, log)
+				laco(ctx, nome, rodar, intervalo, log)
 			})
 			log.Info("worker.started",
-				slog.String("worker", "reference.resolver"),
-				slog.Duration("interval", cfg.Worker.ReferenceInterval))
+				slog.String("worker", nome),
+				slog.Duration("interval", intervalo))
 			return nil
 		},
 		OnStop: func(context.Context) error {
 			cancel()
 			wg.Wait()
-			log.Info("worker.stopped", slog.String("worker", "reference.resolver"))
+			log.Info("worker.stopped", slog.String("worker", nome))
 			return nil
 		},
 	})
 }
 
-func laco(ctx context.Context, resolver *appwagering.Resolver, intervalo time.Duration, log *slog.Logger) {
-	ticker := time.NewTicker(intervalo)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			rodada(ctx, resolver, log)
-		}
-	}
-}
-
-// rodada executa uma varredura, protegida contra pânico.
-//
-// O recover é por ITERAÇÃO: um pânico ao tratar uma pendência específica não
-// pode encerrar o worker, senão uma única linha problemática tiraria a retomada
-// do ar até o próximo reinício.
-func rodada(ctx context.Context, resolver *appwagering.Resolver, log *slog.Logger) {
-	defer safe.Recover(ctx, log, "reference.resolver")
-
-	tratadas, err := resolver.RunOnce(ctx)
-	if err != nil && ctx.Err() == nil {
-		log.LogAttrs(ctx, slog.LevelError, "resolver.round_failed",
-			slog.String(logs.KeyError, err.Error()))
-		return
-	}
-	if tratadas > 0 {
-		log.LogAttrs(ctx, slog.LevelInfo, "resolver.round",
-			slog.Int("resolved", tratadas))
-	}
-}
-
 // Module provê os processos de fundo.
 var Module = fx.Module("worker",
-	fx.Invoke(startReferenceResolver),
+	fx.Provide(newOutboxDispatcher),
+	fx.Invoke(
+		startReferenceResolver,
+		startOutboxPublisher,
+	),
 )
