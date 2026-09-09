@@ -17,6 +17,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
+	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/logs"
@@ -67,6 +68,7 @@ func main() {
 		postgres.Module,
 		appwallet.ClockModule,
 		appwallet.Module,
+		appwagering.Module,
 		auth.Module,
 		server.Module,
 	)

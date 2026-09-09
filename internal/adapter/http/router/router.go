@@ -38,7 +38,12 @@ func IsPublic(path string) bool {
 // O escopo exigido fica na tabela de rotas, ao lado do caminho. É o único lugar
 // onde dá para ler, de uma vez, quem pode chamar o quê — espalhado pelos
 // handlers, sempre existe um que ninguém lembra de proteger.
-func Register(app *fiber.App, health *handler.Health, wallets *handler.Wallet) {
+func Register(
+	app *fiber.App,
+	health *handler.Health,
+	wallets *handler.Wallet,
+	wagers *handler.Wagering,
+) {
 	app.Get("/health/live", health.Live)
 	app.Get("/health/ready", health.Ready)
 
@@ -47,4 +52,13 @@ func Register(app *fiber.App, health *handler.Health, wallets *handler.Wallet) {
 	// wagering:write recebe 403 aqui.
 	app.Post("/wallets", middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Open)
 	app.Get("/wallets/:walletId", middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Get)
+
+	// Operações financeiras: escrita e leitura têm escopos distintos, para que
+	// um integrador que só consulta não precise de credencial que movimenta.
+	app.Post("/wagering/transactions",
+		middleware.RequireScope(auth.ScopeWageringWrite), wagers.Submit)
+	app.Get("/wagering/transactions/:transactionId",
+		middleware.RequireScope(auth.ScopeWageringRead), wagers.GetByID)
+	app.Get("/providers/:providerId/wagering/transactions/:externalTransactionId",
+		middleware.RequireScope(auth.ScopeWageringRead), wagers.GetByExternalID)
 }
