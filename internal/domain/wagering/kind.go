@@ -66,6 +66,37 @@ func (k Kind) IsInternal() bool { return k == Opening }
 // IsReversal informa se o tipo desfaz outra operação.
 func (k Kind) IsReversal() bool { return k == Refund || k == Rollback }
 
+// reversalTargets declara o que cada reversão pode desfazer.
+//
+// Em dado, e não em condicionais, pelo mesmo motivo da máquina de estados: a
+// regra inteira é legível de uma vez, e não existe combinação permitida que
+// ninguém saiba que existe.
+//
+// REFUND devolve uma aposta; ROLLBACK desfaz qualquer movimentação que tenha
+// acontecido. LOSS não aparece em lugar nenhum porque não movimentou nada — não
+// há o que desfazer. E ROLLBACK não desfaz ROLLBACK: seria refazer.
+var reversalTargets = map[Kind]map[Kind]struct{}{
+	Refund:   {Bet: {}},
+	Rollback: {Bet: {}, Win: {}, Refund: {}},
+}
+
+// CanReverse informa se este tipo de reversão pode desfazer a operação indicada.
+func (k Kind) CanReverse(alvo Kind) bool {
+	alvos, ok := reversalTargets[k]
+	if !ok {
+		return false
+	}
+	_, permitido := alvos[alvo]
+	return permitido
+}
+
+// CreditsWallet informa se o tipo credita a carteira quando processado.
+//
+// É o que define a direção da reversão: o movimento contrário ao original. Uma
+// aposta debitou, então revertê-la credita; um ganho creditou, então revertê-lo
+// debita.
+func (k Kind) CreditsWallet() bool { return k == Win || k == Refund }
+
 // RequiresZeroAmount informa se o tipo exige valor exatamente zero.
 //
 // LOSS registra a perda de uma rodada sem movimentar a carteira: o dinheiro já

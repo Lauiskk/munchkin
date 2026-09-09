@@ -401,3 +401,45 @@ func TestReidratacaoRecusaEstadoPersistidoInvalido(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+// A tabela de reversões é contrato: acrescentar uma combinação permite desfazer
+// algo que hoje não se desfaz, e isso não pode acontecer sem intenção.
+func TestTabelaDeReversoes(t *testing.T) {
+	permitido := map[wagering.Kind][]wagering.Kind{
+		wagering.Refund:   {wagering.Bet},
+		wagering.Rollback: {wagering.Bet, wagering.Win, wagering.Refund},
+	}
+	todos := []wagering.Kind{
+		wagering.Opening, wagering.Bet, wagering.Win,
+		wagering.Loss, wagering.Refund, wagering.Rollback,
+	}
+
+	for reversao, alvos := range permitido {
+		aceito := map[wagering.Kind]bool{}
+		for _, a := range alvos {
+			aceito[a] = true
+			assert.True(t, reversao.CanReverse(a), "%s deveria reverter %s", reversao, a)
+		}
+		for _, a := range todos {
+			if !aceito[a] {
+				assert.False(t, reversao.CanReverse(a),
+					"%s NÃO deveria reverter %s", reversao, a)
+			}
+		}
+	}
+
+	// O que não é reversão não reverte nada.
+	for _, k := range []wagering.Kind{wagering.Opening, wagering.Bet, wagering.Win, wagering.Loss} {
+		for _, alvo := range todos {
+			assert.False(t, k.CanReverse(alvo), "%s não é reversão", k)
+		}
+	}
+}
+
+// A direção da reversão é o movimento contrário ao original.
+func TestDirecaoDaMovimentacaoPorTipo(t *testing.T) {
+	assert.False(t, wagering.Bet.CreditsWallet(), "aposta debita")
+	assert.True(t, wagering.Win.CreditsWallet(), "ganho credita")
+	assert.True(t, wagering.Refund.CreditsWallet(), "estorno credita")
+	assert.False(t, wagering.Loss.CreditsWallet())
+}
