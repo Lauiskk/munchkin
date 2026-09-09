@@ -11,6 +11,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/app"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wagering"
 	"github.com/Lauiskk/munchkin/internal/domain/wallet"
+	"github.com/Lauiskk/munchkin/pkg/backoff"
 	"github.com/Lauiskk/munchkin/pkg/logs"
 )
 
@@ -178,28 +179,8 @@ func (r *Resolver) aplicarRetomada(
 
 // Backoff devolve a espera até a tentativa indicada, com teto.
 //
-// O crescimento é por deslocamento de bits, não por exponenciação em ponto
-// flutuante. A primeira versão usava math.Pow e o gate de float a recusou — com
-// razão: este pacote está no caminho do dinheiro, e a regra não abre exceção
-// para "mas aqui não é valor monetário". A versão inteira, além de passar, é
-// exata e não tem o que arredondar.
+// O cálculo mora em pkg/backoff, compartilhado com o publicador da outbox: são
+// duas filas com parâmetros diferentes e a mesma política.
 func Backoff(tentativa int) time.Duration {
-	if tentativa < 1 {
-		tentativa = 1
-	}
-
-	// Limita o deslocamento antes de aplicá-lo: deslocar um int64 além de 62
-	// posições é comportamento indefinido em termos de resultado útil, e
-	// chegaríamos ao teto muito antes disso de qualquer forma.
-	const maxDeslocamento = 20
-	deslocamento := tentativa - 1
-	if deslocamento > maxDeslocamento {
-		return backoffMax
-	}
-
-	espera := backoffBase << deslocamento
-	if espera > backoffMax || espera <= 0 {
-		return backoffMax
-	}
-	return espera
+	return backoff.Exponential(tentativa, backoffBase, backoffMax)
 }
