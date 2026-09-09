@@ -68,14 +68,28 @@ as filas provisionadas e a aplicação. A imagem da aplicação é distroless, r
 como usuário não privilegiado, com sistema de arquivos somente leitura e sem
 capacidade nenhuma.
 
-Para desenvolver com a aplicação fora do container:
+Para desenvolver com a aplicação fora do container, suba as dependências e
+aponte para as portas publicadas no host — que são diferentes das portas
+internas usadas pelo compose:
 
 ```sh
-docker compose up -d keycloak
+docker compose up -d keycloak postgres migrate localstack
+make build
+
 AUTH_ISSUER=http://localhost:8180/realms/munchkin \
 AUTH_AUDIENCE=munchkin-api \
-make build && ./bin/api
+DB_HOST=localhost DB_PORT=5440 DB_NAME=munchkin \
+DB_USER=munchkin_app DB_PASSWORD=local-only-app \
+AWS_REGION=us-east-1 AWS_ENDPOINT_URL=http://localhost:4576 \
+AWS_ACCESS_KEY_ID=local-only-access-key \
+AWS_SECRET_ACCESS_KEY=local-only-secret-key \
+AWS_EVENTS_QUEUE_URL=http://localhost:4576/000000000000/wager-events.fifo \
+AWS_TRANSACTIONS_QUEUE_URL=http://localhost:4576/000000000000/wager-transactions.fifo \
+./bin/api
 ```
+
+A aplicação recusa subir com configuração incompleta, e a mensagem lista **todas**
+as variáveis faltantes de uma vez — não a primeira e depois a seguinte.
 
 Se a porta 8080 já estiver ocupada na sua máquina, ajuste `API_HOST_PORT` no
 `.env` — ela é a porta publicada no host, distinta de `HTTP_PORT`, que é a porta
