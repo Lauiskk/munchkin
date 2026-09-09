@@ -43,10 +43,17 @@ var (
 	localstackParar  func()
 )
 
+// TestMain encerra os containers compartilhados da suíte.
+//
+// Compartilhados porque são caros: o LocalStack leva alguns segundos, o
+// Keycloak leva dezenas. Um por teste multiplicaria isso por cem e a suíte
+// deixaria de ser rodável — e uma suíte que ninguém roda não verifica nada.
 func TestMain(m *testing.M) {
 	codigo := m.Run()
-	if localstackParar != nil {
-		localstackParar()
+	for _, parar := range []func(){localstackParar, keycloakParar} {
+		if parar != nil {
+			parar()
+		}
 	}
 	os.Exit(codigo)
 }

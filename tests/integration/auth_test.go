@@ -44,11 +44,23 @@ const (
 	secretSemEscopo = "local-only-provider-c"
 )
 
+// keycloakBase devolve o IdP que a suíte usa.
+//
+// Por padrão é o container que ela mesma sobe — foi a última dependência manual
+// a cair, e enquanto ela existiu `git clone && make test-integration` não
+// funcionava. KEYCLOAK_BASE_URL continua tendo precedência, para quem quiser
+// apontar para um IdP já de pé e poupar o tempo de subida.
 func keycloakBase() string {
 	if v := os.Getenv("KEYCLOAK_BASE_URL"); v != "" {
 		return strings.TrimRight(v, "/")
 	}
-	return "http://localhost:8180"
+	base, err := keycloakCompartilhado()
+	if err != nil {
+		// Devolver vazio faria a falha aparecer como URL malformada muito
+		// depois. O pânico aqui é lido por quem roda a suíte, com a causa.
+		panic("não foi possível subir o Keycloak da suíte: " + err.Error())
+	}
+	return base
 }
 
 func issuer() string { return keycloakBase() + "/realms/" + realm }
@@ -291,4 +303,32 @@ func TestBootstrapFalhaQuandoOIdPEstaForaDoAr(t *testing.T) {
 	err := ks.Bootstrap(context.Background())
 	require.Error(t, err, "a aplicação não pode subir sem conseguir validar token")
 	assert.Contains(t, err.Error(), "descoberta OIDC")
+}
+
+// descobrir lê o documento de descoberta do realm.
+func descobrir(t *testing.T, base string) map[string]string {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		base+"/realms/"+realm+"/.well-known/openid-configuration", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var doc map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&doc))
+
+	campos := map[string]string{}
+	for _, k := range []string{"issuer", "jwks_uri", "token_endpoint"} {
+		v, ok := doc[k].(string)
+		require.True(t, ok, "a descoberta precisa trazer %s", k)
+		campos[k] = v
+	}
+	return campos
 }
