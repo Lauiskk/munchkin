@@ -12,7 +12,9 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
+	"github.com/Lauiskk/munchkin/internal/app/inbox"
 	"github.com/Lauiskk/munchkin/internal/app/outbox"
+	"github.com/Lauiskk/munchkin/internal/config"
 )
 
 // probeTimeout limita a sonda de prontidão da fila.
@@ -72,8 +74,14 @@ var Module = fx.Module("sqs",
 	fx.Provide(
 		New,
 		NewPublisher,
+		newConsumer,
 		fx.Annotate(newReadinessCheck, fx.ResultTags(`group:"readiness"`)),
 		func(p *Publisher) outbox.Publisher { return p },
 	),
 	fx.Invoke(register),
 )
+
+// newConsumer aplica a configuração ao consumidor.
+func newConsumer(c *Client, h *inbox.Handler, cfg config.Config, log *slog.Logger) *Consumer {
+	return NewConsumer(c, h, log, cfg.Worker.ConsumerBatch, cfg.Worker.ConsumerWait)
+}
