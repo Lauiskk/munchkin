@@ -39,6 +39,7 @@ func TestPadroesQuandoOAmbienteEstaVazio(t *testing.T) {
 	assert.Equal(t, time.Minute, cfg.Auth.JWKSMinRefreshInterval)
 	assert.Equal(t, 10, cfg.DB.MaxOpenConns)
 	assert.Equal(t, 5, cfg.DB.MaxIdleConns)
+	assert.Equal(t, 5*time.Second, cfg.Worker.ReferenceInterval)
 }
 
 // Mais conexões ociosas que abertas é configuração sem sentido, e quase sempre

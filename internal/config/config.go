@@ -25,11 +25,12 @@ var ErrInvalid = errors.New("configuração inválida")
 
 // Config é a configuração completa da aplicação.
 type Config struct {
-	App  App
-	HTTP HTTP
-	Log  Log
-	Auth Auth
-	DB   DB
+	App    App
+	HTTP   HTTP
+	Log    Log
+	Auth   Auth
+	DB     DB
+	Worker Worker
 }
 
 // App identifica o ambiente de execução.
@@ -58,6 +59,16 @@ type HTTP struct {
 
 // Addr devolve o endereço de escuta.
 func (h HTTP) Addr() string { return fmt.Sprintf(":%d", h.Port) }
+
+// Worker reúne os parâmetros dos processos de fundo.
+type Worker struct {
+	// ReferenceInterval é a frequência da varredura de referências pendentes.
+	//
+	// Curto o bastante para que uma referência que chega logo depois seja
+	// resolvida rápido, longo o bastante para não transformar a fila vazia num
+	// laço de consultas.
+	ReferenceInterval time.Duration
+}
 
 // DB reúne os parâmetros de conexão com o PostgreSQL.
 type DB struct {
@@ -181,6 +192,9 @@ func Load() (Config, error) {
 			HTTPTimeout:            v.duration("AUTH_HTTP_TIMEOUT", 5*time.Second),
 		},
 		DB: loadDB(&v),
+		Worker: Worker{
+			ReferenceInterval: v.duration("WORKER_REFERENCE_INTERVAL", 5*time.Second),
+		},
 	}
 
 	// O prazo de uma requisição precisa caber na janela de escrita, senão o
