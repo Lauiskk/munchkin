@@ -50,6 +50,9 @@ paths:
         aplicação que está funcionando.
       security: []
       responses:
+        # Não consulta dependência nenhuma: não tem como ficar indisponível nem
+        # estourar prazo. O único desfecho ruim possível é pânico recuperado.
+        "500": { $ref: "#/components/responses/ErroInterno" }
         "200":
           description: Processo vivo
           content:
@@ -70,6 +73,9 @@ paths:
         derrubar o processo.
       security: []
       responses:
+        # A sonda tem prazo próprio, e estourá-lo reprova como 503 — não vira
+        # 504, porque quem pergunta quer saber se pode mandar tráfego.
+        "500": { $ref: "#/components/responses/ErroInterno" }
         "200":
           description: Pronta para receber tráfego
           content:
@@ -97,6 +103,10 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/OpenWalletRequest" }
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "201":
           description: Carteira aberta
           content:
@@ -115,11 +125,22 @@ paths:
     get:
       tags: [Carteiras]
       summary: Consulta uma carteira
+      description: |
+        Devolve saldo e versão. A `version` avança a cada mudança **efetiva** de
+        saldo — `LOSS` não a move, porque não movimenta a carteira.
+
+        O saldo aqui é o corrente. Para o saldo observado no momento de uma
+        operação específica, consulte a operação: o replay dela devolve o saldo
+        daquele instante, mesmo que a carteira já tenha se movimentado depois.
       security:
         - keycloak: [wallets:admin]
       parameters:
         - $ref: "#/components/parameters/WalletId"
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "200":
           description: Carteira encontrada
           content:
@@ -158,6 +179,10 @@ paths:
           description: Quantos lançamentos por página.
           schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "200":
           description: Uma página do extrato
           content:
@@ -187,6 +212,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WalletId"
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "200":
           description: Resultado da conferência
           content:
@@ -239,6 +268,9 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/SubmitTransactionRequest" }
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "200":
           description: Processada, ou replay de uma já processada
           content:
@@ -286,6 +318,10 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "200":
           description: Operação encontrada
           content:
@@ -315,6 +351,10 @@ paths:
           required: true
           schema: { type: string }
       responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
         "200":
           description: Operação encontrada
           content:
@@ -369,7 +409,30 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     Indisponivel:
-      description: Indisponibilidade transitória — vale retentar
+      description: |
+        Indisponibilidade transitória de uma dependência — **vale retentar**.
+        Distinta de 500 de propósito: 500 diz "há um defeito aqui" e não se
+        retenta; 503 diz "tente de novo".
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PrazoExcedido:
+      description: |
+        O processamento excedeu o prazo da requisição. A operação pode ter sido
+        concluída — reenvie com a **mesma** `Idempotency-Key` para descobrir o
+        desfecho sem arriscar duplicar.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Cancelada:
+      description: A requisição foi cancelada antes de concluir.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ErroInterno:
+      description: |
+        Falha inesperada. O corpo traz `correlationId`, que é o mesmo
+        identificador do log da requisição — cite-o ao reportar.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

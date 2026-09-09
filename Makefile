@@ -273,6 +273,11 @@ gate-openapi-sync:
 	if [ "$$codigos" != "$$nodoc" ]; then \
 	  echo "✗ códigos de falha do contrato diferem do catálogo do domínio:"; \
 	  diff <(echo "$$codigos") <(echo "$$nodoc") | sed 's/^/    /'; exit 1; fi; \
+	ops=$$(grep -cE '^    (get|post|put|delete|patch):' api/openapi.yaml); \
+	erros=$$(grep -c '^        "500":' api/openapi.yaml); \
+	if [ "$$ops" != "$$erros" ]; then \
+	  echo "✗ $$ops operações e $$erros declarações de 500: alguma rota não documenta o envelope de erro"; \
+	  exit 1; fi; \
 	echo "✓ contrato de API em dia com o roteador"
 
 ## gate-hash-fields: campos do hash de idempotência iguais aos do ARCHITECTURE
