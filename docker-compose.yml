@@ -84,6 +84,41 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  localstack:
+    image: localstack/localstack:4.9
+    container_name: munchkin_localstack
+    restart: unless-stopped
+    environment:
+      SERVICES: sqs
+      DEBUG: "0"
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      # O LocalStack aceita qualquer credencial. Fixamos as mesmas que a
+      # aplicação usa para que uma divergência apareça como erro de assinatura,
+      # e não como "fila não encontrada" mais adiante.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local-only-access-key}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-only-secret-key}
+    volumes:
+      # ready.d roda depois que o serviço está de pé, que é quando criar fila
+      # funciona.
+      - ./deploy/localstack/10-queues.sh:/etc/localstack/init/ready.d/10-queues.sh:ro
+    ports:
+      # Fora da 4566 usual, pela mesma razão das demais.
+      - "127.0.0.1:${LOCALSTACK_HOST_PORT:-4576}:4566"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # A fila de saída é a última que o script cria: se ela existe, o
+      # provisionamento inteiro terminou. Perguntar só pelo serviço deixaria a
+      # aplicação subir antes das filas existirem.
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name wager-events.fifo || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   migrate:
     # Mesma imagem da aplicação: as migrations são embarcadas no binário, então
     # não há como aplicar uma versão de schema que não corresponda ao código
@@ -141,6 +176,14 @@ services:
       DB_USER: ${DB_USER:-munchkin_app}
       DB_PASSWORD: ${DB_PASSWORD:-local-only-app}
       DB_SSLMODE: ${DB_SSLMODE:-disable}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Endereço INTERNO do LocalStack. O endereço publicado no host serve para
+      # inspecionar as filas de fora, não para a aplicação.
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local-only-access-key}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-only-secret-key}
+      AWS_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
+      AWS_TRANSACTIONS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
     ports:
       # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
       # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas
@@ -156,6 +199,10 @@ services:
       # apareceria como defeito da aplicação.
       migrate:
         condition: service_completed_successfully
+      # As filas precisam existir antes: o publicador da outbox falharia na
+      # primeira rodada, e a prontidão do SQS recusaria a aplicação.
+      localstack:
+        condition: service_healthy
     # A aplicação não escreve em disco: tudo que ela produz sai no stdout.
     # Sistema de arquivos somente leitura e sem capacidade nenhuma reduzem o
     # que um comprometimento consegue fazer a partir daqui.
