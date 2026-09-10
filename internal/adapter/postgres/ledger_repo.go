@@ -46,8 +46,14 @@ func (r *LedgerRepository) Append(ctx context.Context, e ledger.Entry) error {
 		string(e.Direction()), e.Amount().Minor(), e.Amount().Currency().String(),
 		e.BalanceBefore().Minor(), e.BalanceAfter().Minor(), e.CreatedAt(),
 	).Error
+	if err != nil {
+		return classify(err)
+	}
 
-	return classify(err)
+	// As partidas dobradas saem daqui, na mesma transação e sem que o caso de
+	// uso precise saber. Elas são uma PROJEÇÃO do lançamento — diferencial
+	// opcional do §6.4 — e projeção não se escreve à mão em dois lugares.
+	return r.appendPostings(ctx, e)
 }
 
 // SumSigned devolve a soma dos lançamentos da carteira, com sinal.

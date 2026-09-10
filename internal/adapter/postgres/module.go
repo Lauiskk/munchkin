@@ -9,6 +9,7 @@ import (
 
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
 	appinbox "github.com/Lauiskk/munchkin/internal/app/inbox"
+	appledger "github.com/Lauiskk/munchkin/internal/app/ledger"
 	appoutbox "github.com/Lauiskk/munchkin/internal/app/outbox"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
@@ -86,6 +87,7 @@ var Module = fx.Module("postgres",
 		NewWalletRepository,
 		NewTransactionRepository,
 		NewLedgerRepository,
+		NewPostingRepository,
 		NewOutboxRepository,
 		NewInboxRepository,
 		func(r *WalletRepository) appwallet.Repository { return r },
@@ -105,6 +107,7 @@ var Module = fx.Module("postgres",
 		func(d *Database) appinbox.TxManager { return d },
 		func(r *LedgerRepository) appwallet.LedgerReader { return r },
 		func(r *WalletRepository) appwallet.ReconcileReader { return r },
+		func(r *PostingRepository) appledger.PostingReader { return r },
 	),
 	fx.Invoke(register),
 )
