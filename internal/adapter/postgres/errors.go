@@ -46,6 +46,14 @@ type ConstraintError struct {
 }
 
 func (e *ConstraintError) Error() string {
+	if e.Constraint == "" {
+		// Gatilho que recusa por RAISE não preenche nome de constraint nem de
+		// tabela: quem levanta é código PL/pgSQL, e não uma constraint
+		// declarada. Sem esta saída, o erro chegaria ao log como "invariante do
+		// banco violada:" e mais nada — o diagnóstico inteiro ficaria preso no
+		// erro de baixo, que ninguém imprime.
+		return fmt.Sprintf("%v: %v", e.Kind, e.cause)
+	}
 	return fmt.Sprintf("%v: %s", e.Kind, e.Constraint)
 }
 
