@@ -112,6 +112,16 @@ func (r SubmitTransactionRequest) Decode() (DecodedTransaction, error) {
 		} else {
 			out.ReferenceExternalID = v
 		}
+		// Referência num tipo que não a admite é campo mal preenchido, e a
+		// fronteira é onde isso se recusa: 400 apontando o campo diz o que
+		// corrigir, enquanto deixar seguir devolveria um erro de domínio genérico
+		// mais adiante. O domínio mantém a mesma regra como defesa em
+		// profundidade — quem entra pela fila não passa por aqui.
+		if out.Kind != "" && !out.Kind.AcceptsReference() {
+			campos.Add("referenceExternalTransactionId",
+				"só REFUND, ROLLBACK e WIN admitem referência",
+				apperr.FieldCodeInvalidValue)
+		}
 	}
 
 	if err := campos.Err(); err != nil {

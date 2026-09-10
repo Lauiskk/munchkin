@@ -105,13 +105,19 @@ func NewExternal(
 		return nil, err
 	}
 
-	// Reversão exige referência; o que não é reversão não pode ter. As duas
-	// direções importam: sem a segunda, uma aposta com referência passaria e o
-	// resolvedor tentaria resolvê-la.
+	// Três regras, não duas: reversão EXIGE referência, WIN PODE ter, e o resto
+	// não pode. A terceira direção é a que protege o resolvedor — sem ela uma
+	// aposta com referência passaria e alguém tentaria resolvê-la.
+	//
+	// O WIN é a diferença: o §7 permite que ele informe a aposta da mesma
+	// rodada. Ela fica gravada e nada mais — quem resolve e quem espera são os
+	// guardas de MarkPendingReference e ResolveReference, ambos presos a
+	// IsReversal, e é por isso que aceitar a referência aqui não faz um ganho
+	// virar pendência.
 	switch {
 	case kind.IsReversal() && referenceExternalID == "":
 		return nil, fmt.Errorf("%w: %s", ErrMissingReference, kind)
-	case !kind.IsReversal() && referenceExternalID != "":
+	case !kind.AcceptsReference() && referenceExternalID != "":
 		return nil, fmt.Errorf("%w: %s", ErrUnexpectedReference, kind)
 	}
 

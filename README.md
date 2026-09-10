@@ -440,6 +440,12 @@ movimentado depois.
 reverter, no mesmo provedor. `REFUND` reverte apenas `BET`; `ROLLBACK` reverte
 `BET`, `WIN` e `REFUND`.
 
+O mesmo campo tem outro papel em `WIN`, onde é **opcional**: ele anota a que
+aposta da rodada o ganho pertence. Nesse caso a referência é **gravada e não
+resolvida**, e o ganho credita na hora mesmo que a aposta ainda não tenha
+chegado — esperar por ela faria o ganho deixar de ser crédito imediato. `BET` e
+`LOSS` não admitem o campo e são recusados com 400.
+
 ```sh
 curl -s -X POST localhost:8080/wagering/transactions \
   -H "Authorization: Bearer $PA" \

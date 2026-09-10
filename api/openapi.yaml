@@ -538,8 +538,17 @@ components:
         referenceExternalTransactionId:
           type: string
           description: |
-            Obrigatório em `REFUND` e `ROLLBACK`: o `externalTransactionId` da
-            operação a reverter, no mesmo provedor.
+            **Obrigatório em `REFUND` e `ROLLBACK`**: o `externalTransactionId`
+            da operação a reverter, no mesmo provedor. É resolvida para o
+            identificador interno, precisa concordar em provedor, jogador,
+            carteira, moeda e rodada, e a operação aguarda (`202`) se a
+            referência ainda não chegou.
+
+            **Opcional em `WIN`**: anota a que aposta da rodada o ganho pertence.
+            Fica gravada e **não** é resolvida — o ganho credita na hora, mesmo
+            que a aposta referenciada ainda não exista.
+
+            **Recusado em `BET` e `LOSS`** com `400`, apontando o campo.
 
     Kind:
       type: string

@@ -188,6 +188,20 @@ func traduzirErroDeOperacao(err error) error {
 
 	case errors.Is(err, app.ErrNotFound):
 		return apperr.NotFound("transação não encontrada")
+
+	// Referência faltando ou onde não cabe é campo mal preenchido, não defeito.
+	// A fronteira já recusa os dois casos com 400 — e recusa nas DUAS portas,
+	// porque a fila reaproveita a mesma decodificação. Este braço existe para
+	// que, se um dia surgir uma terceira porta que esqueça a validação, o
+	// desfecho seja 400 apontando o campo e não 500 dizendo "há um bug aqui".
+	case errors.Is(err, wagering.ErrMissingReference),
+		errors.Is(err, wagering.ErrUnexpectedReference):
+		return apperr.Validation(apperr.FieldError{
+			Field:   "referenceExternalTransactionId",
+			Message: err.Error(),
+			Code:    apperr.FieldCodeInvalidValue,
+		})
+
 	default:
 		return apperr.Internal(err)
 	}

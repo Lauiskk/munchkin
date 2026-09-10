@@ -67,6 +67,20 @@ func (k Kind) IsInternal() bool { return k == Opening }
 // IsReversal informa se o tipo desfaz outra operação.
 func (k Kind) IsReversal() bool { return k == Refund || k == Rollback }
 
+// AcceptsReference informa se o tipo pode carregar uma referência externa.
+//
+// São dois papéis diferentes sob o mesmo campo, e a distinção é o que impede o
+// segundo de contaminar o primeiro:
+//
+//   - Em REFUND e ROLLBACK a referência é OBRIGATÓRIA e RESOLVIDA: aponta o que
+//     será desfeito, e a operação espera por ela se ainda não chegou.
+//   - Em WIN é OPCIONAL e INFORMATIVA: liga o ganho à aposta da mesma rodada,
+//     como o §7 do enunciado permite. Não é resolvida e não segura o crédito —
+//     um ganho que esperasse pela aposta deixaria de ser crédito imediato.
+//
+// BET e LOSS não têm o que referenciar.
+func (k Kind) AcceptsReference() bool { return k.IsReversal() || k == Win }
+
 // reversalTargets declara o que cada reversão pode desfazer.
 //
 // Em dado, e não em condicionais, pelo mesmo motivo da máquina de estados: a

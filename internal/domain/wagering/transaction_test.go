@@ -128,10 +128,10 @@ func TestValorExigidoPorTipo(t *testing.T) {
 	}
 }
 
-// Reversão exige referência, e o que não é reversão não pode ter. As duas
-// direções importam: sem a segunda, uma aposta com referência passaria e o
-// resolvedor tentaria resolvê-la.
-func TestReferenciaEhExigidaSomenteEmReversao(t *testing.T) {
+// Três regras, não duas: reversão EXIGE referência, WIN PODE ter, BET e LOSS
+// não podem. A terceira direção é a que protege o resolvedor — sem ela uma
+// aposta com referência passaria e alguém tentaria resolvê-la.
+func TestQuemPodeCarregarReferencia(t *testing.T) {
 	tid, wid, pid := partes(t)
 
 	for _, kind := range []wagering.Kind{wagering.Refund, wagering.Rollback} {
@@ -142,7 +142,7 @@ func TestReferenciaEhExigidaSomenteEmReversao(t *testing.T) {
 		})
 	}
 
-	for _, kind := range []wagering.Kind{wagering.Bet, wagering.Win, wagering.Loss} {
+	for _, kind := range []wagering.Kind{wagering.Bet, wagering.Loss} {
 		t.Run(kind.String()+" com referência", func(t *testing.T) {
 			valor := "25.00"
 			if kind == wagering.Loss {
@@ -153,6 +153,36 @@ func TestReferenciaEhExigidaSomenteEmReversao(t *testing.T) {
 			assert.ErrorIs(t, err, wagering.ErrUnexpectedReference)
 		})
 	}
+
+	// WIN é a exceção que o §7 do enunciado abre: ele PODE informar a aposta da
+	// mesma rodada. A referência fica gravada e não é resolvida — este teste
+	// afirmava o contrário antes, e uma auditoria contra o enunciado mostrou que
+	// era o teste, e não o enunciado, que estava errado.
+	t.Run("WIN aceita referência e a preserva", func(t *testing.T) {
+		tx, err := wagering.NewExternal(tid, wagering.Win, wid, pid,
+			brl(t, "25.00"), origem(), "aposta-original", agora)
+
+		require.NoError(t, err)
+		assert.Equal(t, wagering.ExternalID("aposta-original"), tx.ReferenceExternalID())
+		assert.Equal(t, wagering.Pending, tx.Status(),
+			"a referência não muda o ponto de partida")
+	})
+
+	// E o ganho continua sendo crédito imediato: quem espera e quem resolve são
+	// os dois guardas presos a reversão, e é o que impede a referência
+	// informativa de virar pendência.
+	t.Run("WIN com referência não espera nem resolve", func(t *testing.T) {
+		tx, err := wagering.NewExternal(tid, wagering.Win, wid, pid,
+			brl(t, "25.00"), origem(), "aposta-original", agora)
+		require.NoError(t, err)
+
+		assert.ErrorIs(t, tx.MarkPendingReference(agora, agora),
+			wagering.ErrUnexpectedReference)
+
+		outra, err := wagering.NewTransactionID()
+		require.NoError(t, err)
+		assert.ErrorIs(t, tx.ResolveReference(outra), wagering.ErrUnexpectedReference)
+	})
 }
 
 func TestMaquinaDeEstados(t *testing.T) {

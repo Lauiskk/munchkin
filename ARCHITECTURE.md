@@ -888,6 +888,36 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
    As duas devolvem 422 com o código de falha; a diferença está no que fica
    gravado. A recusa de alvo aparece no log, com o identificador de correlação.
 
+7. **A referência do `WIN` é informativa: gravada, não resolvida.** O §7 permite
+   que um ganho informe a aposta da mesma rodada como referência, mas só exige
+   que ela seja *obrigatória e resolvida* em `REFUND` e `ROLLBACK`. São dois
+   papéis sob o mesmo campo:
+
+   - Em reversão a referência **aponta o que será desfeito**. É obrigatória, é
+     resolvida para o identificador interno, precisa concordar em provedor,
+     jogador, carteira, moeda e rodada, e a operação **espera por ela** se ainda
+     não chegou.
+   - Em `WIN` a referência **anota a que aposta o ganho pertence**. É opcional,
+     fica gravada em `reference_external_transaction_id`, e
+     `reference_transaction_id` permanece nulo.
+
+   O ganho **não espera** pela aposta referenciada: credita na hora, mesmo que
+   ela ainda não tenha chegado. Um ganho que esperasse deixaria de ser crédito
+   imediato, e o §7 o classifica como crédito. O que garante isso não é uma
+   condicional no caso de uso, e sim os guardas de `MarkPendingReference` e
+   `ResolveReference`, ambos presos a reversão: aceitar o campo na construção não
+   dá ao ganho nenhum caminho para virar pendência.
+
+   Também não há validação da referência do ganho. Validar exigiria resolvê-la, e
+   resolver traz de volta a espera que acabamos de descartar. `BET` e `LOSS`
+   continuam sem poder carregar referência — recusados na fronteira, com 400
+   apontando o campo, nas duas portas, porque a fila reusa a mesma decodificação.
+
+   *Descartado — validar só quando a referência já existir:* pegaria erro de
+   integração sem segurar crédito nenhum, mas faria a mesma requisição ser aceita
+   ou recusada conforme a ordem de chegada das mensagens, que é justamente o que
+   um sistema at-least-once não controla.
+
 ## 15. Limitações conhecidas
 
 - **Escala monetária fixa em duas casas.** Não atende moeda de três casas
