@@ -23,6 +23,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/router"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
+	"github.com/Lauiskk/munchkin/internal/adapter/tracing"
 	"github.com/Lauiskk/munchkin/internal/config"
 	domainwallet "github.com/Lauiskk/munchkin/internal/domain/wallet"
 )
@@ -102,6 +103,7 @@ func (a ambienteHTTP) chamarComVerificador(
 		handler.NewWagering(a.processor, a.querier),
 		verificador,
 		router.NewPublicPaths(),
+		tracing.Nulo(),
 	)
 
 	var leitor io.Reader

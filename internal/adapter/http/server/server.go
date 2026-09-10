@@ -9,12 +9,14 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/fx"
 
 	"github.com/Lauiskk/munchkin/internal/adapter/auth"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/middleware"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/router"
+	"github.com/Lauiskk/munchkin/internal/adapter/tracing"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/logs"
 	"github.com/Lauiskk/munchkin/pkg/safe"
@@ -32,6 +34,7 @@ func New(
 	wagers *handler.Wagering,
 	verifier middleware.TokenVerifier,
 	isPublic router.PublicPaths,
+	tracer *tracing.Tracer,
 ) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:               "munchkin",
@@ -56,6 +59,11 @@ func New(
 		},
 	}))
 	app.Use(middleware.RequestContext(cfg.HTTP.RequestTimeout))
+
+	// O tracing vem DEPOIS do contexto da aplicação e ANTES do log: ele precisa
+	// do contexto com correlação para anotar o span, e o log precisa do span
+	// para carregar o identificador do trace.
+	app.Use(middleware.Tracing(tracer, otel.GetTextMapPropagator()))
 	app.Use(middleware.Logging(log))
 
 	// A autenticação roda antes do roteamento, então uma rota inexistente

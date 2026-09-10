@@ -19,6 +19,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/adapter/http/handler"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/router"
 	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
+	"github.com/Lauiskk/munchkin/internal/adapter/tracing"
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/apperr"
 	"github.com/Lauiskk/munchkin/pkg/correlation"
@@ -40,7 +41,7 @@ func newApp(t *testing.T, checks ...handler.ReadinessCheck) *fiber.App {
 	// acidental para em 403, antes de alcançar o handler.
 	return server.New(cfg, log, handler.NewHealth(log, time.Second, checks...),
 		handler.NewWallet(nil, nil, nil, nil), handler.NewWagering(nil, nil),
-		verificadorDeTeste{}, router.IsPublic)
+		verificadorDeTeste{}, router.IsPublic, tracing.Nulo())
 }
 
 // autenticada acrescenta uma credencial válida à requisição.
