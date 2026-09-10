@@ -15,6 +15,7 @@ import (
 
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
 	"github.com/Lauiskk/munchkin/internal/app"
+	appledger "github.com/Lauiskk/munchkin/internal/app/ledger"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/config"
@@ -26,6 +27,7 @@ type ambienteExtrato struct {
 	ambienteOperacao
 	statement  *appwallet.Statement
 	reconciler *appwallet.Reconciler
+	balancer   *appledger.TrialBalancer
 	relogio    *relogioMovel
 }
 
@@ -58,6 +60,8 @@ func montarAmbienteExtrato(t *testing.T, a ambiente) ambienteExtrato {
 		},
 		statement: appwallet.NewStatement(carteiras, entradas),
 		reconciler: appwallet.NewReconciler(carteiras, metricas,
+			slog.New(slog.NewTextHandler(io.Discard, nil))),
+		balancer: appledger.NewTrialBalancer(postgres.NewPostingRepository(a.db),
 			slog.New(slog.NewTextHandler(io.Discard, nil))),
 		relogio: rel,
 	}

@@ -101,6 +101,7 @@ func (a ambienteHTTP) chamarComVerificador(
 		handler.NewHealth(descartado, 2*time.Second),
 		handler.NewWallet(a.opener, a.getter, a.statement, a.reconciler),
 		handler.NewWagering(a.processor, a.querier),
+		handler.NewLedger(a.balancer),
 		verificador,
 		router.NewPublicPaths(),
 		tracing.Nulo(),
@@ -173,7 +174,8 @@ func provedor() adapterauth.Identity {
 func TestDocumentoOpenAPIEhValido(t *testing.T) {
 	doc := contrato(t)
 	assert.Equal(t, "3.0.3", doc.OpenAPI)
-	assert.Len(t, doc.Paths.Map(), 9, "as nove rotas do §9")
+	assert.Len(t, doc.Paths.Map(), 10,
+		"as nove rotas do §9, mais o balancete das partidas dobradas")
 }
 
 // AC-5 — as respostas REAIS validam contra os esquemas declarados.
@@ -251,6 +253,12 @@ func TestRespostasReaisValidamContraOContrato(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(corpo))
 	a.conferir(t, "/wallets/{walletId}/reconciliation", http.MethodPost, http.StatusOK, corpo)
 
+	// Balancete das partidas dobradas: 200.
+	resp, corpo = a.chamar(t, http.MethodGet, "/ledger/trial-balance", "", admin(), nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(corpo))
+	a.conferir(t, "/ledger/trial-balance", http.MethodGet, http.StatusOK, corpo)
+	assert.Contains(t, string(corpo), `"balanced":true`)
+
 	// Vivacidade e prontidão: públicas.
 	resp, corpo = a.chamar(t, http.MethodGet, "/health/live", "", adapterauth.Identity{}, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -277,6 +285,14 @@ func TestCorposDeErroValidamContraOContrato(t *testing.T) {
 		{
 			nome: "sem o escopo exigido", metodo: http.MethodGet,
 			caminho: "/wallets/" + inexistente.String(), rota: "/wallets/{walletId}",
+			identidade: provedor(), status: http.StatusForbidden,
+		},
+		{
+			// AC-8: o balancete soma a plataforma inteira. Um integrador com
+			// escopo de provedor não pode ver o total movimentado, mesmo que a
+			// resposta não nomeie carteira nenhuma.
+			nome: "balancete sem escopo de administração", metodo: http.MethodGet,
+			caminho: "/ledger/trial-balance", rota: "/ledger/trial-balance",
 			identidade: provedor(), status: http.StatusForbidden,
 		},
 		{

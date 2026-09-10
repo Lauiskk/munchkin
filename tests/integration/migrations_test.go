@@ -45,7 +45,7 @@ func TestCicloDeMigracao(t *testing.T) {
 	require.NoError(t, m.Up())
 	versao, sujo, err = m.Version()
 	require.NoError(t, err)
-	assert.Equal(t, uint(4), versao)
+	assert.Equal(t, uint(5), versao)
 	assert.False(t, sujo)
 
 	// Aplicar de novo não pode falhar: o executor roda em toda subida do
@@ -55,7 +55,7 @@ func TestCicloDeMigracao(t *testing.T) {
 	require.NoError(t, m.Down(), "reverter uma etapa")
 	versao, _, err = m.Version()
 	require.NoError(t, err)
-	assert.Equal(t, uint(3), versao)
+	assert.Equal(t, uint(4), versao)
 
 	require.NoError(t, m.Up())
 
