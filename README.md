@@ -16,6 +16,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | Subir e usar | [Como rodar](#como-rodar) · [Autenticação](#autenticação) · [Exemplos de chamada](#exemplos-de-chamada) |
 | Entender o contrato | [Operação financeira](#operação-financeira) · [Reversões](#reversões) · [Extrato e reconciliação](#extrato-e-reconciliação) · [Contrato da API](#contrato-da-api) |
 | Mensageria | [Eventos e filas](#eventos-e-filas) · [Entrada por mensageria](#entrada-por-mensageria) |
+| Contabilidade | [Extrato e reconciliação](#extrato-e-reconciliação) · [Partidas dobradas](#partidas-dobradas) |
 | Operar | [Migrations](#migrations) · [Banco de dados](#banco-de-dados) · [Observabilidade](#observabilidade) · [Portas](#portas) |
 | Verificar | [Testes](#testes) · [Testes de carga](#testes-de-carga) · [Gates](#gates) |
 
@@ -50,10 +51,11 @@ concluído — estão no [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 16 | Concorrência e recuperação | ✅ |
 | 18 | Testes de carga com k6 — *diferencial opcional* | ✅ |
 | 19 | Tracing OpenTelemetry, desligado por padrão — *diferencial opcional* | ✅ |
+| 20 | Partidas dobradas — *diferencial opcional* | ✅ |
 
 Não há etapa 17: a documentação final não virou checkpoint próprio, e sim parte
-de cada um. Grafana, Loki, dashboards e partidas dobradas são os diferenciais
-opcionais que **não** foram feitos, e estão declarados no `ARCHITECTURE.md`.
+de cada um. Grafana, Loki e dashboards são os diferenciais opcionais que **não**
+foram feitos, e estão declarados no `ARCHITECTURE.md`.
 
 ---
 
@@ -525,6 +527,63 @@ que uma movimentação concorrente não produza divergência falsa.
 | Sem escopo `wallets:admin` | 403 |
 | Carteira inexistente | 404 |
 
+## Partidas dobradas
+
+Diferencial **opcional** do §6.4, e a única coisa que ele acrescenta ao ledger é
+a contrapartida: quando uma carteira perde 80,00, alguém ganha 80,00. Esse
+alguém é a **casa**, uma conta por moeda.
+
+O ledger que o §6.4 especifica **não muda** — nem coluna, nem constraint, nem
+consulta. As partidas vivem numa tabela paralela, `ledger_postings`, e nascem
+como projeção: cada lançamento vira um par que soma zero, escrito na mesma
+instrução, dentro da mesma transação que moveu o saldo. Não existe função que
+devolva metade de um par, e por isso não existe caminho que escreva metade.
+
+```sh
+curl -s localhost:8080/ledger/trial-balance -H "Authorization: Bearer $ADMIN"
+```
+
+```json
+{
+  "balanced": true,
+  "checkedPostings": 4,
+  "unbalancedTransactions": 0,
+  "currencies": [
+    {
+      "currency": "BRL",
+      "accounts": [
+        { "accountKind": "WALLET", "balance": { "amount": "920.00",  "currency": "BRL" } },
+        { "accountKind": "HOUSE",  "balance": { "amount": "-920.00", "currency": "BRL" } }
+      ],
+      "total": { "amount": "0.00", "currency": "BRL" }
+    }
+  ]
+}
+```
+
+O balancete é a conferência que a reconciliação por carteira **não** faz: ela
+olha uma carteira de cada vez, e o balancete olha a plataforma inteira. Na base
+local, com 14.834 carteiras, a soma das partidas de carteira bateu exatamente
+com a soma dos saldos armazenados.
+
+`unbalancedTransactions` só pode ser zero. Um `CONSTRAINT TRIGGER` **diferido**
+soma as partidas no commit e recusa a transação que não fecha — e é diferido
+porque as duas metades podem chegar em instruções diferentes: o momento certo de
+perguntar "os livros fecham?" é o fim da transação, não o de cada instrução. O
+campo existe como **sintoma**: se um dia subir, alguma escrita alcançou a tabela
+por fora do caminho que o sistema conhece.
+
+A tabela é append-only nas mesmas duas camadas do ledger — gatilho e privilégio
+revogado —, e a migration reconstrói as partidas de todo o histórico já
+existente: um invariante que só vale do deploy em diante deixa metade dos dados
+fora dele.
+
+| Situação | Código |
+|---|---|
+| Balancete devolvido | 200 |
+| Sem credencial | 401 |
+| Sem escopo `wallets:admin` | 403 |
+
 ## Eventos e filas
 
 Três filas FIFO, provisionadas pelo LocalStack na subida:
@@ -639,8 +698,8 @@ curl -s localhost:9092/openapi.yaml      # o documento
 
 O contrato está em `api/openapi.yaml`, em OpenAPI 3.0, e é **embarcado no
 binário** — não há como servir uma versão e versionar outra. Ele descreve as
-nove rotas, os corpos de erro, os doze `failureCode` e os escopos exigidos por
-rota.
+dez rotas — as nove do §9 mais o balancete das partidas dobradas —, os corpos de
+erro, os doze `failureCode` e os escopos exigidos por rota.
 
 Fica no mesmo listener das métricas, separado da porta de negócio: o contrato
 revela o mapa da API, e num ambiente real essa porta não sai da rede interna.

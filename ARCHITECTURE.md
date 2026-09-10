@@ -172,6 +172,7 @@ BEGIN
  6. UPDATE wallets SET balance_minor = $, version = version + 1
       WHERE id = $ AND version = $      -- afeta exatamente 1 linha
  7. INSERT wallet_ledger_entries        -- LOSS não gera lançamento
+    + INSERT ledger_postings (par)      -- projeção; ver §4.3
  8. UPDATE wager_transactions (PROCESSED | REJECTED)
  9. INSERT outbox_events
 COMMIT
@@ -289,6 +290,40 @@ classificar é como se produz um schema meio aplicado que ninguém reproduz.
 
 A reversão completa exige confirmação por variável de ambiente. Reverter tudo
 apaga os dados, e não é a operação que alguém quer por ter digitado depressa.
+
+### 4.3 Partidas dobradas
+
+Diferencial **opcional** do §6.4, e por isso ele entra sem tocar no que o
+enunciado especifica: `wallet_ledger_entries` fica exatamente como está, e as
+partidas vivem em `ledger_postings`, ao lado.
+
+**A partida é projeção do lançamento, não origem independente.** Cada lançamento
+vira um par que soma zero — a carteira de um lado, a **casa** do outro — escrito
+na mesma instrução, dentro da mesma transação. A função que cria partidas sempre
+cria as duas; não existe uma que devolva metade de um par, e por isso não existe
+caminho que escreva metade.
+
+A conta da casa é identificada pela **moeda**: dinheiro de moedas diferentes não
+se soma, e um balancete que misturasse duas não seria balancete.
+
+**O valor da partida tem sinal.** A invariante desta tabela é "a soma dá zero", e
+uma soma sobre coluna com sinal é a expressão direta disso — no banco vira
+`SUM(amount_minor) = 0`, que se lê igual à regra.
+
+**Quem confere é o banco, no commit.** Um `CONSTRAINT TRIGGER` diferido soma as
+partidas da transação e recusa o commit se sobrar qualquer coisa, faltar metade
+ou houver mais de uma moeda. Diferido porque as duas metades podem chegar em
+instruções diferentes: um gatilho imediato dispara no fim da *instrução* e
+recusaria a metade que chega sozinha, mesmo que a transação fechasse depois.
+Como a aplicação escreve o par numa instrução só, ela não precisa do diferimento
+— quem precisa é o caminho que alguém escrever amanhã.
+
+A tabela é append-only nas mesmas duas camadas do ledger: gatilho e privilégio
+revogado do papel da aplicação.
+
+`GET /ledger/trial-balance` expõe o balancete, com escopo `wallets:admin`. É a
+conferência que a reconciliação por carteira não faz: ela olha uma carteira de
+cada vez, e o balancete olha a plataforma inteira.
 
 ## 5. Concorrência e locks
 
@@ -873,6 +908,13 @@ segue são diferenciais opcionais não feitos, e limitações declaradas.
 
 - **Grafana, Loki e dashboards não foram feitos.** O §12 os trata como
   diferencial opcional. Ficam declarados como não feitos, e não meio feitos.
+- **A contabilidade de partidas dobradas tem uma conta de casa por moeda, e mais
+  nada.** Não há plano de contas, centro de custo nem contrapartida por
+  provedor. É o suficiente para o balancete fechar, e é o que foi prometido.
+- **O gatilho diferido pode abortar um commit financeiro.** É o comportamento
+  correto — confirmar dinheiro cujos livros não fecham seria pior que falhar —,
+  mas é uma forma nova de a transação falhar, introduzida por um diferencial
+  opcional. Ela só dispara se alguém escrever partidas por fora do par.
 - **O trace não atravessa a outbox.** Uma operação HTTP e a publicação do evento
   que ela gerou são dois traces distintos, ligados apenas pelo `correlationId`
   que ambos carregam. Ligá-los exigiria persistir o `traceparent` na tabela da
