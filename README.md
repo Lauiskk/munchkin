@@ -33,7 +33,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 13 | Observabilidade | ✅ |
 | 14 | Documentação de API (OpenAPI) | ✅ |
 | 15 | Testes de integração com infraestrutura real | ✅ |
-| 16 | Concorrência e recuperação | ⬜ |
+| 16 | Concorrência e recuperação | ✅ |
 
 ---
 
@@ -189,8 +189,19 @@ ledger, dois publicadores sobre a mesma outbox, dois resolvedores sobre a mesma
 pendência, a mesma operação por HTTP e por fila, e reconciliação sob
 movimentação.
 
-`make test-recovery` ainda não tem cenários — eles chegam na etapa 16, e até lá
-o alvo termina bem informando isso.
+`make test-recovery` sobe **três processos do binário compilado** sobre a mesma
+infraestrutura e verifica o que só aparece com instâncias de verdade: cinquenta
+envios da mesma aposta distribuídos entre elas, a disputa 80+80 saindo de
+processos diferentes, uma pendência retomada por outra instância depois que a
+primeira morre com `kill -9`, e reentrega depois do commit sem segundo efeito.
+
+Um `kill -9` deliberado, e não `SIGTERM`: o encerramento ordenado já tem teste
+próprio, e o que faltava verificar era o desligamento que **não** dá chance de
+limpar nada.
+
+As três suítes com container são pesadas — Postgres, Keycloak e LocalStack, mais
+os processos. Numa máquina com outras coisas rodando, containers podem estourar
+prazo de subida.
 
 ## Gates
 
