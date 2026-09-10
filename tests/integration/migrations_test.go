@@ -45,7 +45,7 @@ func TestCicloDeMigracao(t *testing.T) {
 	require.NoError(t, m.Up())
 	versao, sujo, err = m.Version()
 	require.NoError(t, err)
-	assert.Equal(t, uint(5), versao)
+	assert.Equal(t, uint(6), versao)
 	assert.False(t, sujo)
 
 	// Aplicar de novo não pode falhar: o executor roda em toda subida do
@@ -55,7 +55,7 @@ func TestCicloDeMigracao(t *testing.T) {
 	require.NoError(t, m.Down(), "reverter uma etapa")
 	versao, _, err = m.Version()
 	require.NoError(t, err)
-	assert.Equal(t, uint(4), versao)
+	assert.Equal(t, uint(5), versao)
 
 	require.NoError(t, m.Up())
 
@@ -445,4 +445,68 @@ func aplicarMigrations(t *testing.T, dbCfg config.DB) {
 	m := novoMigrator(t, asOwner(dbCfg))
 	require.NoError(t, m.Up())
 	require.NoError(t, m.Close())
+}
+
+// TestReversaoDaSextaPreservaODinheiroEDescartaSoAAnotacao prova a afirmação que
+// a própria migration faz.
+//
+// A 000006 alarga o CHECK para o `WIN` poder carregar a referência da aposta da
+// rodada, como o §7 permite. O schema anterior não sabe representar isso, então
+// a reversão precisa anular o campo antes de reapertar a constraint — e a
+// pergunta que importa é o que se perde nesse caminho.
+//
+// A resposta, e o que este teste trava: perde-se a ANOTAÇÃO, nunca o dinheiro. O
+// tipo, o valor, o estado e o saldo resultante atravessam a reversão intactos.
+// Se algum dia a referência do ganho passar a participar de um cálculo, este
+// teste falha — e é essa a hora de a reversão deixar de ser possível.
+func TestReversaoDaSextaPreservaODinheiroEDescartaSoAAnotacao(t *testing.T) {
+	dbCfg := migrado(t)
+	db := abrir(t, asOwner(dbCfg))
+	m := novoMigrator(t, dbCfg)
+
+	carteira, jogador := uuid.New(), uuid.New()
+	require.NoError(t, db.Session(context.Background()).Exec(
+		`INSERT INTO wallets (id, player_id, currency, balance_minor, version)
+		 VALUES (?, ?, 'BRL', 10000, 1)`, carteira, jogador).Error)
+
+	ganho := uuid.New()
+	require.NoError(t, db.Session(context.Background()).Exec(
+		`INSERT INTO wager_transactions
+		   (id, kind, status, wallet_id, player_id, amount_minor, currency,
+		    provider_id, external_transaction_id, idempotency_key, payload_hash,
+		    round_id, game_id, reference_external_transaction_id,
+		    result_balance_minor, processed_at)
+		 VALUES (?, 'WIN', 'PROCESSED', ?, ?, 4500, 'BRL',
+		    'provider-a', 'ganho-r1', 'provider-a:ganho-r1', '\x00',
+		    'round-1', 'fortune-chimp', 'aposta-r1',
+		    10000, now())`,
+		ganho, carteira, jogador).Error)
+
+	require.NoError(t, m.Down(), "a 000006 tem de ser reversível")
+
+	var kind, status, moeda string
+	var valor, saldo int64
+	var referencia *string
+	require.NoError(t, db.Session(context.Background()).Raw(
+		`SELECT t.kind, t.status, t.currency, t.amount_minor,
+		        t.reference_external_transaction_id, w.balance_minor
+		   FROM wager_transactions t JOIN wallets w ON w.id = t.wallet_id
+		  WHERE t.id = ?`, ganho).
+		Row().Scan(&kind, &status, &moeda, &valor, &referencia, &saldo))
+
+	assert.Nil(t, referencia, "a anotação some: o schema antigo não sabe guardá-la")
+	assert.Equal(t, "WIN", kind)
+	assert.Equal(t, "PROCESSED", status)
+	assert.Equal(t, int64(4500), valor, "o valor atravessa a reversão intacto")
+	assert.Equal(t, "BRL", moeda)
+	assert.Equal(t, int64(10000), saldo, "e o saldo da carteira não é tocado")
+
+	// E o schema antigo volta a recusar o que só a 000006 admite.
+	err := db.Session(context.Background()).Exec(
+		`UPDATE wager_transactions SET reference_external_transaction_id = 'aposta-r1'
+		  WHERE id = ?`, ganho).Error
+	require.Error(t, err, "revertida, a regra estrita volta a valer")
+	assert.Contains(t, err.Error(), "wager_transactions_reference_by_kind")
+
+	require.NoError(t, m.Up(), "e a ida continua funcionando depois da volta")
 }

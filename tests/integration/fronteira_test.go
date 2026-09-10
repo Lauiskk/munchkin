@@ -267,3 +267,135 @@ func TestRecusaSemRegistroNaoAncoraIdempotencia(t *testing.T) {
 	assert.True(t, replay.IdempotentReplay)
 	assert.Equal(t, "9010.00 BRL", a.saldo(t, w), "nenhum dos envios debitou")
 }
+
+// TestGanhoAceitaReferenciaDaApostaDaMesmaRodada guarda a regra do §7.
+//
+// O enunciado diz que `WIN` **pode** informar uma aposta da mesma rodada como
+// referência. O sistema recusava, e o erro virava HTTP 500 — uma entrada que o
+// enunciado declara legítima tratada como defeito do servidor. Havia até um
+// teste de domínio afirmando a recusa como se fosse o certo.
+//
+// A referência no ganho é INFORMATIVA: fica gravada e não é resolvida. O crédito
+// é imediato mesmo quando a aposta referenciada ainda não existe — um ganho que
+// esperasse pela aposta deixaria de ser crédito.
+func TestGanhoAceitaReferenciaDaApostaDaMesmaRodada(t *testing.T) {
+	a := novoAmbienteHTTP(t)
+	w, jogador := a.carteiraCom(t, "100.00")
+
+	comReferencia := func(externo, kind, valor, referencia string) string {
+		return fmt.Sprintf(`{"providerId":"provider-a","externalTransactionId":%q,
+		  "playerId":%q,"walletId":%q,"roundId":"round-1","gameId":"fortune-chimp",
+		  "kind":%q,"money":{"amount":%q,"currency":"BRL"},
+		  "referenceExternalTransactionId":%q}`,
+			externo, jogador, w, kind, valor, referencia)
+	}
+
+	// A aposta da rodada, para o ganho ter o que referenciar.
+	resp, bruto := a.chamar(t, http.MethodPost, "/wagering/transactions",
+		operacaoJSON("aposta-r1", w.String(), jogador.String(), "BET", "30.00"),
+		provedor(), map[string]string{"Idempotency-Key": "provider-a:aposta-r1"})
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(bruto))
+
+	resp, bruto = a.chamar(t, http.MethodPost, "/wagering/transactions",
+		comReferencia("ganho-r1", "WIN", "45.00", "aposta-r1"),
+		provedor(), map[string]string{"Idempotency-Key": "provider-a:ganho-r1"})
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(bruto))
+	var out struct {
+		Status        string `json:"status"`
+		TransactionID string `json:"transactionId"`
+		Balance       struct {
+			Amount string `json:"amount"`
+		} `json:"balance"`
+	}
+	require.NoError(t, json.Unmarshal(bruto, &out))
+	assert.Equal(t, "PROCESSED", out.Status, "o ganho credita na hora, não vira pendência")
+	assert.Equal(t, "115.00", out.Balance.Amount, "100 - 30 + 45")
+	a.conferir(t, "/wagering/transactions", http.MethodPost, resp.StatusCode, bruto)
+
+	// A referência ficou GRAVADA e NÃO foi resolvida: reference_transaction_id
+	// permanece nulo, que é o que separa "informa" de "desfaz".
+	var externa, interna *string
+	require.NoError(t, a.db.Session(a.ctx).Raw(
+		`SELECT reference_external_transaction_id, reference_transaction_id::text
+		   FROM wager_transactions WHERE id = ?`, out.TransactionID).
+		Row().Scan(&externa, &interna))
+	require.NotNil(t, externa)
+	assert.Equal(t, "aposta-r1", *externa)
+	assert.Nil(t, interna, "o ganho grava a referência, não a resolve")
+
+	// E um ganho cuja aposta ainda não chegou credita do mesmo jeito: a
+	// referência não é condição, é anotação.
+	resp, bruto = a.chamar(t, http.MethodPost, "/wagering/transactions",
+		comReferencia("ganho-orfao", "WIN", "10.00", "aposta-que-nunca-chegou"),
+		provedor(), map[string]string{"Idempotency-Key": "provider-a:ganho-orfao"})
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(bruto))
+	require.NoError(t, json.Unmarshal(bruto, &out))
+	assert.Equal(t, "PROCESSED", out.Status,
+		"referência ausente não pode segurar um crédito")
+	assert.Equal(t, "125.00", out.Balance.Amount)
+}
+
+// TestReferenciaOndeNaoCabeEhQuatrocentosENaoQuinhentos completa a regra.
+//
+// `BET` e `LOSS` não têm o que referenciar. A recusa acontece na fronteira, com
+// o campo apontado — e não no domínio, de onde saía um erro genérico que o
+// tradutor não conhecia e transformava em 500.
+func TestReferenciaOndeNaoCabeEhQuatrocentosENaoQuinhentos(t *testing.T) {
+	a := novoAmbienteHTTP(t)
+	w, jogador := a.carteiraCom(t, "100.00")
+
+	casos := []struct{ kind, valor string }{{"BET", "30.00"}, {"LOSS", "0.00"}}
+	for _, caso := range casos {
+		t.Run(caso.kind+" com referência", func(t *testing.T) {
+			corpo := fmt.Sprintf(`{"providerId":"provider-a","externalTransactionId":"ref-%s",
+			  "playerId":%q,"walletId":%q,"roundId":"round-1","gameId":"g","kind":%q,
+			  "money":{"amount":%q,"currency":"BRL"},
+			  "referenceExternalTransactionId":"aposta-original"}`,
+				caso.kind, jogador, w, caso.kind, caso.valor)
+
+			resp, bruto := a.chamar(t, http.MethodPost, "/wagering/transactions", corpo,
+				provedor(), map[string]string{"Idempotency-Key": "provider-a:ref-" + caso.kind})
+
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(bruto))
+			e := erroDe(t, bruto)
+			assert.Equal(t, "VALIDATION_ERROR", e.Code)
+			require.NotEmpty(t, e.Fields)
+			assert.Equal(t, "referenceExternalTransactionId", e.Fields[0].Field)
+			a.conferir(t, "/wagering/transactions", http.MethodPost, resp.StatusCode, bruto)
+		})
+	}
+
+	// E a reversão continua EXIGINDO a referência.
+	corpo := fmt.Sprintf(`{"providerId":"provider-a","externalTransactionId":"refund-sem-ref",
+	  "playerId":%q,"walletId":%q,"roundId":"round-1","gameId":"g","kind":"REFUND",
+	  "money":{"amount":"30.00","currency":"BRL"}}`, jogador, w)
+	resp, bruto := a.chamar(t, http.MethodPost, "/wagering/transactions", corpo,
+		provedor(), map[string]string{"Idempotency-Key": "provider-a:refund-sem-ref"})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(bruto))
+}
+
+// TestAberturaInternaNaoEntraPorHTTP fecha a outra porta.
+//
+// `OPENING` é reservado à abertura interna: um provedor que pudesse enviá-la
+// creditaria a própria carteira. Pela fila havia teste; por HTTP não havia
+// nenhum, e trocar `ParseExternalKind` por `ParseKind` na decodificação passaria
+// a suíte inteira verde — restaria só a constraint do banco, com 500 no lugar de
+// 400.
+func TestAberturaInternaNaoEntraPorHTTP(t *testing.T) {
+	a := novoAmbienteHTTP(t)
+	w, jogador := a.carteiraCom(t, "100.00")
+
+	resp, bruto := a.chamar(t, http.MethodPost, "/wagering/transactions",
+		operacaoJSON("abertura-pirata", w.String(), jogador.String(), "OPENING", "500.00"),
+		provedor(), map[string]string{"Idempotency-Key": "provider-a:abertura-pirata"})
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(bruto))
+	e := erroDe(t, bruto)
+	assert.Equal(t, "VALIDATION_ERROR", e.Code)
+	require.NotEmpty(t, e.Fields)
+	assert.Equal(t, "kind", e.Fields[0].Field)
+	a.conferir(t, "/wagering/transactions", http.MethodPost, resp.StatusCode, bruto)
+
+	assert.Equal(t, "100.00 BRL", a.saldo(t, w), "nenhum crédito escapou")
+}
