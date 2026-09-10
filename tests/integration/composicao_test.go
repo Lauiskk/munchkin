@@ -15,17 +15,9 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 
-	"github.com/Lauiskk/munchkin/internal/adapter/auth"
-	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
-	"github.com/Lauiskk/munchkin/internal/adapter/ops"
 	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
-	adaptersqsmod "github.com/Lauiskk/munchkin/internal/adapter/sqs"
-	appinbox "github.com/Lauiskk/munchkin/internal/app/inbox"
-	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
-	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
+	"github.com/Lauiskk/munchkin/internal/composition"
 	"github.com/Lauiskk/munchkin/internal/config"
-	"github.com/Lauiskk/munchkin/internal/worker"
-	"github.com/Lauiskk/munchkin/pkg/metrics"
 )
 
 // diarioSincronizado acumula o log da aplicação para que o teste possa cobrá-lo.
@@ -105,19 +97,10 @@ func TestComposicaoFxSobeEEncerraLiberandoRecursos(t *testing.T) {
 			return &fxevent.SlogLogger{Logger: l}
 		}),
 
-		// Os MESMOS módulos do cmd/api. Uma lista própria de teste passaria a
-		// verificar uma composição que não é a que roda.
-		postgres.Module,
-		appwallet.ClockModule,
-		appwallet.Module,
-		appinbox.Module,
-		appwagering.Module,
-		auth.Module,
-		metrics.Module,
-		ops.Module,
-		adaptersqsmod.Module,
-		server.Module,
-		worker.Module,
+		// O MESMO grafo que o cmd/api monta — literalmente a mesma variável.
+		// Uma lista própria de teste verificaria uma composição que não é a que
+		// roda, e foi assim que ela ficou desatualizada quando o tracing entrou.
+		composition.Aplicacao,
 
 		fx.Populate(&db),
 	)
@@ -168,9 +151,7 @@ func TestComposicaoFalhaNaSubidaQuandoOBancoEstaInalcancavel(t *testing.T) {
 	app := fx.New(
 		fx.StartTimeout(time.Minute),
 		fx.Supply(cfg), fx.Supply(log), fx.NopLogger,
-		postgres.Module, appwallet.ClockModule, appwallet.Module,
-		appinbox.Module, appwagering.Module, auth.Module,
-		metrics.Module, ops.Module, adaptersqsmod.Module, server.Module, worker.Module,
+		composition.Aplicacao,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

@@ -14,18 +14,9 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 
-	"github.com/Lauiskk/munchkin/internal/adapter/auth"
-	"github.com/Lauiskk/munchkin/internal/adapter/http/server"
-	"github.com/Lauiskk/munchkin/internal/adapter/ops"
-	"github.com/Lauiskk/munchkin/internal/adapter/postgres"
-	"github.com/Lauiskk/munchkin/internal/adapter/sqs"
-	appinbox "github.com/Lauiskk/munchkin/internal/app/inbox"
-	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
-	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
+	"github.com/Lauiskk/munchkin/internal/composition"
 	"github.com/Lauiskk/munchkin/internal/config"
-	"github.com/Lauiskk/munchkin/internal/worker"
 	"github.com/Lauiskk/munchkin/pkg/logs"
-	"github.com/Lauiskk/munchkin/pkg/metrics"
 )
 
 // Prazos do ciclo de vida. A subida é curta porque tudo que ela faz é validar e
@@ -70,17 +61,7 @@ func main() {
 			return &fxevent.SlogLogger{Logger: log}
 		}),
 
-		postgres.Module,
-		appwallet.ClockModule,
-		appwallet.Module,
-		appinbox.Module,
-		appwagering.Module,
-		auth.Module,
-		metrics.Module,
-		ops.Module,
-		sqs.Module,
-		server.Module,
-		worker.Module,
+		composition.Aplicacao,
 	)
 
 	app.Run()
