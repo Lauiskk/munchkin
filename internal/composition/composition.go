@@ -16,6 +16,7 @@ import (
 	"github.com/Lauiskk/munchkin/internal/adapter/sqs"
 	"github.com/Lauiskk/munchkin/internal/adapter/tracing"
 	appinbox "github.com/Lauiskk/munchkin/internal/app/inbox"
+	appledger "github.com/Lauiskk/munchkin/internal/app/ledger"
 	appwagering "github.com/Lauiskk/munchkin/internal/app/wagering"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/worker"
@@ -28,6 +29,7 @@ var Aplicacao = fx.Options(
 	appwallet.ClockModule,
 	appwallet.Module,
 	appinbox.Module,
+	appledger.Module,
 	appwagering.Module,
 	auth.Module,
 	tracing.Module,

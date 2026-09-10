@@ -226,6 +226,41 @@ paths:
         "403": { $ref: "#/components/responses/SemEscopo" }
         "404": { $ref: "#/components/responses/NaoEncontrado" }
 
+  /ledger/trial-balance:
+    get:
+      tags: [Carteiras]
+      summary: Balancete das partidas dobradas
+      description: |
+        Diferencial **opcional** do §6.4. Ao lado do ledger que o enunciado
+        especifica, cada lançamento é projetado num par de partidas que se
+        anulam: a carteira de um lado, a conta da casa do outro.
+
+        O balancete soma essas partidas por moeda e tipo de conta. `total` de
+        cada moeda tem de ser `0.00` — é isso que "partidas dobradas" quer
+        dizer.
+
+        `unbalancedTransactions` só pode ser zero: um gatilho diferido recusa,
+        no commit, a transação cujas partidas não fecham. Sai na resposta como
+        **sintoma** — se um dia subir, alguma escrita alcançou a tabela por fora
+        do caminho que o sistema conhece.
+
+        Visão global, e por isso escopo de administração: a resposta não nomeia
+        carteira nenhuma, mas revela o total movimentado da plataforma.
+      security:
+        - keycloak: [wallets:admin]
+      responses:
+        "408": { $ref: "#/components/responses/Cancelada" }
+        "500": { $ref: "#/components/responses/ErroInterno" }
+        "503": { $ref: "#/components/responses/Indisponivel" }
+        "504": { $ref: "#/components/responses/PrazoExcedido" }
+        "200":
+          description: Balancete por moeda
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrialBalance" }
+        "401": { $ref: "#/components/responses/SemCredencial" }
+        "403": { $ref: "#/components/responses/SemEscopo" }
+
   /wagering/transactions:
     post:
       tags: [Operações]
@@ -608,6 +643,48 @@ components:
           description: Armazenado menos reconstruído. Pode ser negativo.
         consistent: { type: boolean }
         checkedEntries: { type: integer, format: int64 }
+
+    AccountTotal:
+      type: object
+      required: [accountKind, balance]
+      properties:
+        accountKind:
+          type: string
+          enum: [WALLET, HOUSE]
+          description: |
+            `WALLET` soma todas as carteiras da moeda; `HOUSE` é a contrapartida
+            da casa, uma por moeda.
+        balance:
+          allOf:
+            - $ref: "#/components/schemas/Money"
+          description: Acumulado do tipo de conta. Sai com sinal.
+
+    CurrencyBalance:
+      type: object
+      required: [currency, accounts, total]
+      properties:
+        currency: { type: string, example: "BRL" }
+        accounts:
+          type: array
+          items: { $ref: "#/components/schemas/AccountTotal" }
+        total:
+          allOf:
+            - $ref: "#/components/schemas/Money"
+          description: Soma das contas da moeda. Tem de ser "0.00".
+
+    TrialBalance:
+      type: object
+      required: [balanced, checkedPostings, unbalancedTransactions, currencies]
+      properties:
+        balanced: { type: boolean }
+        checkedPostings: { type: integer, format: int64 }
+        unbalancedTransactions:
+          type: integer
+          format: int64
+          description: Só pode ser zero. Existe como sintoma.
+        currencies:
+          type: array
+          items: { $ref: "#/components/schemas/CurrencyBalance" }
 
     FieldError:
       type: object

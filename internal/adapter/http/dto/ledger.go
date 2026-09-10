@@ -1,6 +1,7 @@
 package dto
 
 import (
+	appledger "github.com/Lauiskk/munchkin/internal/app/ledger"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	"github.com/Lauiskk/munchkin/internal/domain/event"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
@@ -74,5 +75,57 @@ func NewReconciliationResponse(r appwallet.Reconciliation) ReconciliationRespons
 		Difference:        r.Difference,
 		Consistent:        r.Consistent,
 		CheckedEntries:    r.CheckedEntries,
+	}
+}
+
+// AccountTotalResponse é o saldo acumulado de um tipo de conta.
+type AccountTotalResponse struct {
+	AccountKind string      `json:"accountKind"`
+	Balance     money.Money `json:"balance"`
+}
+
+// CurrencyBalanceResponse é o balancete de uma moeda.
+type CurrencyBalanceResponse struct {
+	Currency string                 `json:"currency"`
+	Accounts []AccountTotalResponse `json:"accounts"`
+	// Total é a soma das contas da moeda, e tem de ser "0.00". Sai na resposta
+	// em vez de ficar implícito no `balanced`: quem confere um balancete quer
+	// ver o zero, não a promessa de que ele existe.
+	Total money.Money `json:"total"`
+}
+
+// TrialBalanceResponse é o balancete das partidas dobradas.
+type TrialBalanceResponse struct {
+	Balanced        bool  `json:"balanced"`
+	CheckedPostings int64 `json:"checkedPostings"`
+	// UnbalancedTransactions só pode ser zero: o gatilho diferido recusa o
+	// commit que a deixaria diferente disso. Sai na resposta como sintoma.
+	UnbalancedTransactions int64                     `json:"unbalancedTransactions"`
+	Currencies             []CurrencyBalanceResponse `json:"currencies"`
+}
+
+// NewTrialBalanceResponse monta a resposta do balancete.
+func NewTrialBalanceResponse(b appledger.TrialBalance) TrialBalanceResponse {
+	moedas := make([]CurrencyBalanceResponse, 0, len(b.Currencies))
+	for _, m := range b.Currencies {
+		contas := make([]AccountTotalResponse, 0, len(m.Accounts))
+		for _, c := range m.Accounts {
+			contas = append(contas, AccountTotalResponse{
+				AccountKind: string(c.Kind),
+				Balance:     c.Balance,
+			})
+		}
+		moedas = append(moedas, CurrencyBalanceResponse{
+			Currency: m.Currency.String(),
+			Accounts: contas,
+			Total:    m.Total,
+		})
+	}
+
+	return TrialBalanceResponse{
+		Balanced:               b.Balanced,
+		CheckedPostings:        b.CheckedPostings,
+		UnbalancedTransactions: b.UnbalancedTransactions,
+		Currencies:             moedas,
 	}
 }

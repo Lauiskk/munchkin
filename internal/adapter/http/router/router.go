@@ -43,6 +43,7 @@ func Register(
 	health *handler.Health,
 	wallets *handler.Wallet,
 	wagers *handler.Wagering,
+	postings *handler.Ledger,
 ) {
 	app.Get("/health/live", health.Live)
 	app.Get("/health/ready", health.Ready)
@@ -58,6 +59,12 @@ func Register(
 		middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Ledger)
 	app.Post("/wallets/:walletId/reconciliation",
 		middleware.RequireScope(auth.ScopeWalletsAdmin), wallets.Reconcile)
+
+	// Balancete das partidas dobradas — diferencial opcional do §6.4. É uma
+	// visão GLOBAL, por isso escopo de administração e caminho fora de
+	// /wallets: ele não pertence a carteira nenhuma.
+	app.Get("/ledger/trial-balance",
+		middleware.RequireScope(auth.ScopeWalletsAdmin), postings.TrialBalance)
 
 	// Operações financeiras: escrita e leitura têm escopos distintos, para que
 	// um integrador que só consulta não precise de credencial que movimenta.

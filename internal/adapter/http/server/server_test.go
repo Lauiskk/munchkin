@@ -41,6 +41,7 @@ func newApp(t *testing.T, checks ...handler.ReadinessCheck) *fiber.App {
 	// acidental para em 403, antes de alcançar o handler.
 	return server.New(cfg, log, handler.NewHealth(log, time.Second, checks...),
 		handler.NewWallet(nil, nil, nil, nil), handler.NewWagering(nil, nil),
+		handler.NewLedger(nil),
 		verificadorDeTeste{}, router.IsPublic, tracing.Nulo())
 }
 
