@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -58,6 +59,17 @@ func Open(cfg config.Config, log *slog.Logger) (*Database, error) {
 		// a senha. Substituímos por uma mensagem própria.
 		return nil, fmt.Errorf("abertura da conexão com o PostgreSQL falhou (host=%s port=%d db=%s user=%s)",
 			cfg.DB.Host, cfg.DB.Port, cfg.DB.Name, cfg.DB.User)
+	}
+
+	// O plugin de tracing só entra quando o tracing está ligado. Ele instala
+	// callbacks em toda operação do GORM, e um serviço com tracing desligado não
+	// deve pagar por instrumentação que ninguém coleta.
+	if cfg.Tracing.Enabled {
+		if err := db.Use(otelgorm.NewPlugin(
+			otelgorm.WithDBName(cfg.DB.Name),
+		)); err != nil {
+			return nil, fmt.Errorf("instrumentação do banco: %w", err)
+		}
 	}
 
 	sqlDB, err := db.DB()
