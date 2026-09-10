@@ -175,3 +175,51 @@ func TestJWKSVazioNaoDescartaAsChavesAtuais(t *testing.T) {
 	_, err = ks.KeyFor(context.Background(), "chave-1")
 	assert.NoError(t, err, "uma atualização malsucedida não pode apagar o que funciona")
 }
+
+// TestIdPForaDoArDepoisDaSubidaNaoDerrubaAAutenticacao guarda a propriedade
+// que dá razão de existir ao cache de chaves.
+//
+// Achado numa passada de QA como lacuna: derrubar o IdP com a aplicação de pé
+// foi verificado à mão contra a pilha viva — e a API continuou autenticando —,
+// mas nenhum teste o exercitava. Havia teste para o IdP fora do ar na SUBIDA
+// (falha rápido, correto) e para o JWKS devolvido vazio, que é um IdP saudável
+// respondendo mal. Faltava o caso do meio, que é o que acontece de verdade em
+// produção: o IdP cai depois, e o tráfego já autenticado não pode parar.
+//
+// Se isto regredir, uma indisponibilidade do IdP vira 401 em todo o tráfego —
+// uma dependência de leitura derrubando o caminho financeiro inteiro.
+func TestIdPForaDoArDepoisDaSubidaNaoDerrubaAAutenticacao(t *testing.T) {
+	idp := novoIdPFalso(t)
+	ks := auth.NewKeySet(opcoes(idp.URL, ""))
+	require.NoError(t, ks.Bootstrap(context.Background()))
+
+	_, err := ks.KeyFor(context.Background(), "chave-1")
+	require.NoError(t, err)
+	buscasAteAqui := idp.buscasAoJWKS
+
+	// O IdP some. Não responde devagar, não responde errado: some.
+	idp.Close()
+
+	_, err = ks.KeyFor(context.Background(), "chave-1")
+	assert.NoError(t, err, "a chave em memória não depende de o IdP estar de pé")
+
+	// A atualização periódica falha, e é ela que roda enquanto o IdP está fora.
+	err = ks.Refresh(context.Background())
+	require.Error(t, err, "sem IdP não há o que buscar")
+
+	// E o que importa: depois da falha, o conjunto continua servindo. Uma
+	// atualização malsucedida não pode ter efeito pior que não ter acontecido.
+	_, err = ks.KeyFor(context.Background(), "chave-1")
+	assert.NoError(t, err, "a falha de atualização não pode apagar o que funciona")
+
+	// E um kid desconhecido continua RECUSADO. O erro aqui é o de rede, e não
+	// ErrKeyNotFound — a atualização forçada nem chega a ler resposta —, mas o
+	// que importa para a segurança é que ele é um erro: o middleware traduz
+	// qualquer falha do verificador em 401, então o IdP fora do ar não abre
+	// brecha para token com chave desconhecida. Falha fechado, que é o único
+	// desfecho aceitável numa verificação de credencial.
+	_, err = ks.KeyFor(context.Background(), "kid-que-nunca-existiu")
+	require.Error(t, err, "sem chave e sem IdP, a única resposta segura é recusar")
+	assert.Equal(t, buscasAteAqui, idp.buscasAoJWKS,
+		"o servidor está fora: nenhuma busca chegou a ser atendida")
+}
