@@ -431,6 +431,22 @@ Desfechos:
 | Mesma operação com outra chave | conflito |
 | Operação concluída | o saldo devolvido é o **observado no processamento original**, mesmo que a carteira já tenha se movimentado depois |
 
+**Nem toda recusa ancora a chave, e a distinção é deliberada.** Recusa por alvo
+inválido — carteira inexistente, carteira de outro jogador, moeda divergente,
+valor incompatível com o tipo — acontece **antes** do `INSERT` e não grava linha
+nenhuma. Sem linha não há o que reproduzir: a mesma chave volta a ser avaliada
+do zero, e pode terminar diferente se o mundo tiver mudado — uma chave recusada
+com `WALLET_NOT_FOUND` processa normalmente se a carteira passar a existir.
+
+A recusa por **saldo**, ao contrário, é gravada: ela decidiu sobre dinheiro
+depois de tomar o lock da carteira. O replay dela devolve o desfecho persistido
+mesmo que a carteira já tenha sido creditada — reavaliar transformaria a mesma
+chave em duas decisões financeiras diferentes.
+
+O critério é esse: recusa que não teve efeito nenhum não é fato a preservar;
+recusa que olhou para o saldo é. A ausência de `transactionId` na resposta é o
+que distingue as duas para quem integra.
+
 **Descartado — Redis como cache de resultado:** aceleraria apenas o replay, que
 é exceção e não caminho quente. Em troca: mais um serviço, mais um modo de
 falha, invalidação e TTL para acertar, e uma política de fail-open a documentar.
