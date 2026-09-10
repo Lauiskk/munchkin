@@ -81,13 +81,11 @@ test-concurrency:
 
 ## test-recovery: cenários de recuperação após interrupção
 #
-# A suíte é da etapa 16. Até lá o alvo precisa TERMINAR BEM em vez de falhar:
-# `go test` sai com erro quando nenhum pacote casa, e um comando documentado no
-# README que falha ensina quem avalia que vermelho aqui é normal.
+# Sem -race: a suíte sobe PROCESSOS, e o detector de corrida instrumenta o
+# binário de teste, não os filhos. O que ele acrescentaria aqui é lentidão; as
+# corridas dentro do processo são cobertas por test-race e test-concurrency.
 test-recovery:
-	@if [ "$$($(GO) list ./tests/recovery/... 2>/dev/null | wc -l)" -eq 0 ]; then \
-	  echo "· suíte de recuperação ainda vazia (etapa 16)"; exit 0; fi; \
-	$(GO) test -race -tags=integration -count=1 -timeout=20m ./tests/recovery/...
+	$(GO) test -tags=integration -count=1 -timeout=40m ./tests/recovery/...
 
 ## fuzz: fuzzing do parser monetário (padrão: 60s; use FUZZTIME para mudar)
 fuzz:
