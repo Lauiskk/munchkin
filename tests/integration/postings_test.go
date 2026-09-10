@@ -12,6 +12,7 @@ import (
 
 	appledger "github.com/Lauiskk/munchkin/internal/app/ledger"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
+	"github.com/Lauiskk/munchkin/internal/domain/money"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wagering"
 	domainwallet "github.com/Lauiskk/munchkin/internal/domain/wallet"
 )
@@ -330,9 +331,16 @@ func TestMigrationPreencheHistoricoExistente(t *testing.T) {
 // carteiraCom abre uma carteira com o saldo pedido.
 func (a ambienteExtrato) carteiraCom(t *testing.T, saldo string) (domainwallet.ID, domainwallet.PlayerID) {
 	t.Helper()
+	return a.carteiraComMoeda(t, saldo, money.BRL)
+}
+
+func (a ambienteExtrato) carteiraComMoeda(
+	t *testing.T, saldo string, moeda money.Currency,
+) (domainwallet.ID, domainwallet.PlayerID) {
+	t.Helper()
 	jogador := jogadorNovo(t)
 	out, err := a.opener.Open(a.ctx, appwallet.OpenInput{
-		PlayerID: jogador, InitialBalance: valor(t, saldo),
+		PlayerID: jogador, InitialBalance: valorEm(t, saldo, moeda),
 	})
 	require.NoError(t, err)
 	return out.Wallet.ID(), jogador
@@ -368,4 +376,54 @@ func TestBalanceteDizPorExtensoQuandoOTotalNaoCabe(t *testing.T) {
 	assert.Contains(t, err.Error(), "BRL", "a mensagem nomeia a conta e a moeda")
 	assert.NotContains(t, err.Error(), "Scan error",
 		"o erro do driver não pode vazar como se fosse a explicação")
+}
+
+// TestBalanceteSeparaAsMoedasESomaZeroEmCadaUma cobre a dimensão que faltava.
+//
+// Todo o balancete tinha sido exercitado só em BRL — o teste anterior chega a
+// cobrar `Len(Currencies, 1)`. Uma soma que atravessasse moedas fecharia em zero
+// por acidente e ninguém veria: 100 BRL de crédito com 100 USD de débito somam
+// zero se o agrupamento estiver errado.
+//
+// O que se prova aqui é que cada moeda fecha SOZINHA, e que os totais de uma não
+// contaminam a outra.
+func TestBalanceteSeparaAsMoedasESomaZeroEmCadaUma(t *testing.T) {
+	a := novoAmbienteExtrato(t)
+
+	brl, jogadorBRL := a.carteiraCom(t, "100.00")
+	usd, jogadorUSD := a.carteiraComMoeda(t, "200.00", money.USD)
+
+	out, err := a.processor.Process(a.ctx, operacao(t, brl, jogadorBRL, "m-brl", domain.Bet, "30.00"))
+	require.NoError(t, err)
+	require.Equal(t, domain.Processed, out.Status)
+
+	emDolar := operacao(t, usd, jogadorUSD, "m-usd", domain.Bet, "30.00")
+	emDolar.Money = valorEm(t, "45.00", money.USD)
+	out, err = a.processor.Process(a.ctx, emDolar)
+	require.NoError(t, err)
+	require.Equal(t, domain.Processed, out.Status, "a moeda da operação segue a da carteira")
+
+	balancete, err := a.balancer.Run(a.ctx)
+	require.NoError(t, err)
+	assert.True(t, balancete.Balanced)
+	assert.Zero(t, balancete.UnbalancedTransactions)
+	require.Len(t, balancete.Currencies, 2, "as duas moedas aparecem separadas")
+
+	porMoeda := map[string]map[string]string{}
+	for _, m := range balancete.Currencies {
+		assert.Equal(t, "0.00", m.Total.Amount(),
+			"a moeda %s tem de fechar sozinha", m.Currency)
+		porMoeda[m.Currency.String()] = map[string]string{}
+		for _, conta := range m.Accounts {
+			porMoeda[m.Currency.String()][string(conta.Kind)] = conta.Balance.Amount()
+		}
+	}
+
+	// Abertura 100, aposta -30.
+	assert.Equal(t, "70.00", porMoeda["BRL"]["WALLET"])
+	assert.Equal(t, "-70.00", porMoeda["BRL"]["HOUSE"])
+	// Abertura 200, aposta -45. Se os totais se misturassem, estes números
+	// seriam outros — é o que o caso existe para impedir.
+	assert.Equal(t, "155.00", porMoeda["USD"]["WALLET"])
+	assert.Equal(t, "-155.00", porMoeda["USD"]["HOUSE"])
 }

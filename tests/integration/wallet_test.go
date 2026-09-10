@@ -69,7 +69,14 @@ func novoAmbienteSobre(t *testing.T, dbCfg config.DB) ambiente {
 
 func valor(t *testing.T, v string) money.Money {
 	t.Helper()
-	m, err := money.Parse(v, money.BRL)
+	return valorEm(t, v, money.BRL)
+}
+
+// valorEm é o mesmo em outra moeda. A maior parte da suíte roda em BRL; o que
+// precisa de duas moedas ao mesmo tempo usa este.
+func valorEm(t *testing.T, v string, moeda money.Currency) money.Money {
+	t.Helper()
+	m, err := money.Parse(v, moeda)
 	require.NoError(t, err)
 	return m
 }
