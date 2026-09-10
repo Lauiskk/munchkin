@@ -175,8 +175,22 @@ TOKEN=$(curl -s -X POST \
   -d client_id=provider-a \
   -d client_secret=local-only-provider-a | jq -r .access_token)
 
-curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/wallets
+# a credencial vale: rota de provedor responde 404 porque a operação não existe
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+  localhost:8080/providers/provider-a/wagering/transactions/ainda-nao-existe
+
+# sem credencial, a MESMA rota responde 401
+curl -s -o /dev/null -w '%{http_code}\n' \
+  localhost:8080/providers/provider-a/wagering/transactions/ainda-nao-existe
 ```
+
+```
+404
+401
+```
+
+O par é a prova de que a autenticação está de pé: o 404 só é alcançável por quem
+se identificou e tem escopo de leitura.
 
 O `providerId` de qualquer operação vem **do token**, nunca do corpo: uma
 requisição cujo corpo discorde do token é recusada.
