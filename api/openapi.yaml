@@ -716,6 +716,7 @@ components:
             - TOO_MANY_REQUESTS
             - TIMEOUT
             - SERVICE_UNAVAILABLE
+            - REPORT_LIMIT_EXCEEDED
             - INTERNAL_ERROR
         message: { type: string }
         fields:

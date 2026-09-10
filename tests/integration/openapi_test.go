@@ -352,3 +352,36 @@ func reversaoJSON(externo, carteira, jogador, valor, referencia string) string {
 
 // jsonDe decodifica um corpo de resposta.
 func jsonDe(corpo []byte, destino any) error { return json.Unmarshal(corpo, destino) }
+
+// TestBalanceteQueNaoCabeSeApresentaComoLimiteENaoComoDefeito garante que o
+// cliente vê a condição, e não "erro inesperado".
+//
+// O par deste teste em postings_test.go prova que o caso de uso recusa por
+// extenso. Este prova a outra metade: o que sai pela rota. Sem ele, o erro
+// existiria bem escrito no log e chegaria genérico a quem chamou — que é
+// exatamente o defeito original, só que uma camada acima.
+func TestBalanceteQueNaoCabeSeApresentaComoLimiteENaoComoDefeito(t *testing.T) {
+	a := novoAmbienteHTTP(t)
+	const teto = "92233720368547758.07"
+	a.carteiraCom(t, teto)
+	a.carteiraCom(t, teto)
+
+	resp, corpo := a.chamar(t, http.MethodGet, "/ledger/trial-balance", "", admin(), nil)
+
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	var envelope struct {
+		Code          string `json:"code"`
+		Message       string `json:"message"`
+		CorrelationID string `json:"correlationId"`
+	}
+	require.NoError(t, json.Unmarshal(corpo, &envelope))
+	assert.Equal(t, "REPORT_LIMIT_EXCEEDED", envelope.Code,
+		"a condição é conhecida: não pode se apresentar como INTERNAL_ERROR")
+	assert.Contains(t, envelope.Message, "representável")
+	assert.NotEmpty(t, envelope.CorrelationID)
+	assert.NotContains(t, envelope.Message, "Scan",
+		"o erro do driver não pode vazar para quem chamou")
+
+	// E o corpo continua sendo o envelope que o contrato descreve.
+	a.conferir(t, "/ledger/trial-balance", http.MethodGet, resp.StatusCode, corpo)
+}

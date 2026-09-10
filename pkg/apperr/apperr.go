@@ -31,6 +31,11 @@ const (
 	CodeTimeout          Code = "TIMEOUT"
 	CodeUnavailable      Code = "SERVICE_UNAVAILABLE"
 	CodeInternal         Code = "INTERNAL_ERROR"
+	// CodeReportLimitExceeded — o relatório existe, os dados estão íntegros, e
+	// o total pedido não cabe no tipo em que ele é expresso. Separado de
+	// INTERNAL_ERROR porque a ação de quem recebe é outra: não é "abra um
+	// chamado", é "os totais passaram do que este relatório sabe representar".
+	CodeReportLimitExceeded Code = "REPORT_LIMIT_EXCEEDED"
 )
 
 // FieldError descreve um campo rejeitado na validação da entrada.
@@ -162,6 +167,13 @@ func Unavailable(message string) *Error {
 func Internal(cause error) *Error {
 	return New(CodeInternal, http.StatusInternalServerError,
 		"erro inesperado ao processar a requisição").WithCause(cause)
+}
+
+// ReportLimitExceeded indica total de relatório fora da faixa representável.
+// A mensagem é explícita de propósito: a condição é conhecida e entendida, e
+// devolvê-la como "erro inesperado" esconderia isso de quem opera.
+func ReportLimitExceeded(message string) *Error {
+	return New(CodeReportLimitExceeded, http.StatusInternalServerError, message)
 }
 
 // From converte um erro qualquer em *Error, preservando o que já for da
