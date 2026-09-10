@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"unicode/utf8"
 )
 
 // Scale é a quantidade de casas decimais. Fixa em duas, conforme o contrato.
@@ -336,5 +337,14 @@ func truncar(s string) string {
 	if len(s) <= limite {
 		return s
 	}
-	return s[:limite] + "…"
+	// O corte respeita a fronteira do caractere. Cortar por byte parte um
+	// caractere multibyte ao meio e produz UTF-8 inválido — que o PostgreSQL
+	// recusa numa coluna TEXT e o SQS recusa num atributo de mensagem. A
+	// entrada aqui vem de fora, então acento no lugar errado é questão de
+	// tempo, não de hipótese.
+	corte := limite
+	for corte > 0 && !utf8.RuneStart(s[corte]) {
+		corte--
+	}
+	return s[:corte] + "…"
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -222,5 +223,15 @@ func truncar(s string) string {
 	if len(s) <= maxMotivo {
 		return s
 	}
-	return s[:maxMotivo]
+	const limite = maxMotivo
+	// O corte respeita a fronteira do caractere. Cortar por byte parte um
+	// caractere multibyte ao meio e produz UTF-8 inválido — que o PostgreSQL
+	// recusa numa coluna TEXT e o SQS recusa num atributo de mensagem. A
+	// entrada aqui vem de fora, então acento no lugar errado é questão de
+	// tempo, não de hipótese.
+	corte := limite
+	for corte > 0 && !utf8.RuneStart(s[corte]) {
+		corte--
+	}
+	return s[:corte]
 }
