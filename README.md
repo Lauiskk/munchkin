@@ -17,7 +17,7 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | Entender o contrato | [Operação financeira](#operação-financeira) · [Reversões](#reversões) · [Extrato e reconciliação](#extrato-e-reconciliação) · [Contrato da API](#contrato-da-api) |
 | Mensageria | [Eventos e filas](#eventos-e-filas) · [Entrada por mensageria](#entrada-por-mensageria) |
 | Operar | [Migrations](#migrations) · [Banco de dados](#banco-de-dados) · [Observabilidade](#observabilidade) · [Portas](#portas) |
-| Verificar | [Testes](#testes) · [Gates](#gates) |
+| Verificar | [Testes](#testes) · [Testes de carga](#testes-de-carga) · [Gates](#gates) |
 
 As decisões de arquitetura — dinheiro, transações, idempotência, locks,
 reversões, inbox/outbox, autenticação, shutdown, limitações e trabalho não
@@ -216,6 +216,78 @@ limpar nada.
 As três suítes com container são pesadas — Postgres, Keycloak e LocalStack, mais
 os processos. Numa máquina com outras coisas rodando, containers podem estourar
 prazo de subida.
+
+## Testes de carga
+
+Diferencial opcional do §14. `make load-test` roda k6 em container contra a
+pilha local — nada a instalar além de Docker.
+
+```sh
+docker compose up -d
+make load-test
+```
+
+**Ambiente da medição abaixo.** Os números descrevem *esta* máquina, não
+capacidade de produção: WSL2 sobre Windows, 12 CPUs, 15 GB, Docker Desktop
+29.7.2, com **17 containers de outros projetos rodando ao lado**. Toda a pilha
+— aplicação, PostgreSQL, Keycloak e LocalStack — na mesma máquina que o gerador
+de carga.
+
+**Metodologia.** Três perfis em sequência, nunca simultâneos: rodá-los juntos
+misturaria efeitos, e a contenção de uma carteira inflaria a latência das
+outras.
+
+| Perfil | VUs | Duração | O que mede |
+|---|---:|---:|---|
+| Carteiras distintas | 20 | 30s | Vazão do caminho financeiro sem contenção |
+| Mesma carteira | 20 | 30s | O custo do lock de linha |
+| Replay idempotente | 10 | 20s | O caminho de reenvio |
+
+### Resultado
+
+```
+Requisições         37.725          Vazão   129,6 req/s        FALHAS   0
+
+Latência              p50      p95      p99      máx
+  carteiras distintas  18ms     39ms     60ms    541ms
+  MESMA carteira      103ms    256ms    512ms   2098ms
+  replay               58ms     68ms     80ms    127ms
+
+Desfechos    processadas 19.439 · replays 3.408 · recusas 0 · conflitos 0
+```
+
+**O preço do lock é visível e esperado:** a mesma operação numa carteira
+disputada custa **5,7× mais no p50** e **8,5× no p99**. É o que se paga por não
+ter saldo negativo — e é a razão de carteiras distintas seguirem em paralelo.
+
+Recusa por saldo e conflito de idempotência **não** contam como erro: são
+desfechos previstos. Só 5xx e falha de rede contam, e não houve nenhum.
+
+**A consistência financeira sobreviveu:** ao fim, 14.834 carteiras e
+**zero divergências** entre saldo armazenado e soma do ledger.
+
+### O que a carga encontrou: a outbox é o gargalo
+
+| | |
+|---|---:|
+| Eventos produzidos pela carga | ~761/s |
+| Eventos publicados pelo worker | ~202/s |
+| Atraso ao fim da carga | 84s |
+| Atraso 200s depois | 270s — o acúmulo **não** drenou |
+
+A causa é aritmética, não defeito: o publicador faz **uma chamada SQS por
+evento**, a ~5ms por ida, e o padrão da aplicação é ainda mais conservador —
+lote de 50 a cada 2s, ou seja **25 eventos/s**. O compose eleva para lote de 500
+a cada 500ms, o que rendeu as 202/s medidas.
+
+Nada se perde: os eventos estão na outbox, duráveis, e saem quando o publicador
+alcançar. O que existe é **atraso de integração**, e ele é visível exatamente
+porque a métrica `munchkin_outbox_pending_age_seconds` foi feita para isso — ela
+mede a idade do pendente mais antigo, e não a contagem, justamente para
+distinguir acúmulo temporário de incapacidade.
+
+O próximo passo está declarado no [`ARCHITECTURE.md`](ARCHITECTURE.md):
+`SendMessageBatch`, que agrupa até dez mensagens por chamada.
 
 ## Gates
 

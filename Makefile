@@ -92,6 +92,29 @@ fuzz:
 	@$(GO) test -run FuzzParseIdaEVolta -fuzz FuzzParseIdaEVolta \
 	  -fuzztime=$${FUZZTIME:-60s} ./internal/domain/money/
 
+## load-test: carga contra a pilha local (diferencial opcional do §14)
+#
+# k6 em container: nada a instalar além de Docker. --network host porque a pilha
+# publica no loopback, e o alvo é sempre local — carga contra outro ambiente
+# exige passar BASE explicitamente.
+load-test:
+	@if ! curl -sf $${BASE:-http://127.0.0.1:8080}/health/ready >/dev/null; then \
+	  echo "✗ a pilha não está pronta em $${BASE:-http://127.0.0.1:8080}"; \
+	  echo "  suba com: docker compose up -d"; exit 1; fi
+	@echo "── ambiente ──"
+	@echo "  host      : $$(uname -sr)"
+	@echo "  CPUs      : $$(nproc)   memória: $$(free -g 2>/dev/null | awk '/Mem:/{print $$2"GB"}')"
+	@echo "  docker    : $$(docker version --format '{{.Server.Version}}')"
+	@echo "  outros containers na máquina: $$(docker ps -q | wc -l)"
+	@echo "  imagem k6 : grafana/k6:latest"
+	@echo
+	docker run --rm --network host \
+	  -v $(PWD)/deploy/k6:/scripts:ro \
+	  -e BASE=$${BASE:-http://127.0.0.1:8080} \
+	  -e METRICS=$${METRICS:-http://127.0.0.1:9092} \
+	  -e KEYCLOAK=$${KEYCLOAK:-http://127.0.0.1:8180} \
+	  grafana/k6:latest run /scripts/carga.js
+
 ## lint: golangci-lint
 lint:
 	@if [ "$$($(GO) list $(PKG) 2>/dev/null | wc -l)" -eq 0 ]; then \

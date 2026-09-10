@@ -186,6 +186,12 @@ services:
       AWS_TRANSACTIONS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
       AWS_TRANSACTIONS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
       METRICS_PORT: "9090"
+      # Publicação da outbox. O padrão da aplicação é conservador — lote de 50 a
+      # cada 2s, ou seja 25 eventos/s. Sob carga isso vira gargalo, e o medidor
+      # munchkin_outbox_pending_age_seconds é exatamente o que torna isso
+      # visível. Aqui ele é elevado para o que o ambiente local aguenta.
+      WORKER_OUTBOX_BATCH: "${WORKER_OUTBOX_BATCH:-500}"
+      WORKER_OUTBOX_INTERVAL: "${WORKER_OUTBOX_INTERVAL:-500ms}"
     ports:
       # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
       # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas

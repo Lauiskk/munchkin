@@ -856,6 +856,15 @@ segue são diferenciais opcionais não feitos, e limitações declaradas.
 - **A prosa do contrato de API pode envelhecer sem que nada quebre.** O gate e a
   validação cobrem rotas, códigos de falha e formas de resposta; descrições em
   texto não. É a mesma limitação do `README.md`, com o mesmo remédio.
+- **O publicador da outbox faz uma chamada por evento.** Medido: ~202 eventos/s
+  com lote de 500 a cada 500ms, contra ~761 eventos/s produzidos sob carga de
+  130 req/s. O acúmulo é durável e não se perde, mas o atraso de integração
+  cresce enquanto a carga durar. O próximo passo é `SendMessageBatch`, que
+  agrupa até dez mensagens por chamada — não implementado para não mexer no
+  caminho de publicação já verificado, e declarado aqui em vez de escondido.
+- **O padrão de publicação é conservador**: lote de 50 a cada 2s, ou seja 25
+  eventos/s. Serve a um ambiente pequeno e é gargalo em qualquer carga real. O
+  compose eleva para 500 a cada 500ms; ambos são configuráveis.
 - **As suítes com container são sensíveis a contenção.** Sob carga — outras
   coisas rodando na mesma máquina — a subida de um container pode estourar
   prazo, e um teste sem relação nenhuma falha por isso. Não há mitigação boa
