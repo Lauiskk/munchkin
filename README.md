@@ -157,7 +157,16 @@ Toda rota de negócio exige um access token do IdP. Só `/health/live` e
 `/health/ready` são públicas.
 
 O ambiente local sobe um Keycloak já provisionado, com o realm importado a cada
-subida — os segredos abaixo valem apenas neste compose e não têm valor fora dele.
+subida de [`deploy/keycloak/realm-munchkin.json`](deploy/keycloak/realm-munchkin.json)
+— é lá que os quatro clientes e seus segredos estão definidos.
+
+**Os segredos estão versionados de propósito.** O §15 do enunciado pede
+provisionamento automático do IdP e identidades de teste; uma identidade que só
+existisse na minha máquina não seria nem uma coisa nem outra, e os exemplos
+abaixo não funcionariam para quem clona. Eles autenticam contra um Keycloak
+recriado a partir daquele arquivo a cada `docker compose up`, preso ao loopback
+— o prefixo `local-only-` diz isso de relance. O raciocínio completo está no
+[`ARCHITECTURE.md` §10](ARCHITECTURE.md).
 
 | Cliente | `provider_id` | Escopos | Para quê |
 |---|---|---|---|

@@ -763,6 +763,27 @@ de verdade.
 IdP externo **Keycloak**, provisionado por importação de realm versionado no
 repositório, com `client_credentials` para comunicação entre serviços.
 
+**Os segredos dos clientes estão versionados, e isso é deliberado.** O
+`realm-munchkin.json` carrega, em texto claro, o `secret` de cada cliente de
+teste — `local-only-provider-a` e companhia. Antes de parecer descuido, é o que
+o §15 do enunciado pede: *"inclua o provisionamento automático do IdP,
+identidades de teste e instruções para executar os fluxos autenticados"*. Uma
+identidade de teste que só existisse na minha máquina não seria provisionamento
+automático, e os exemplos do `README.md` não funcionariam para quem clona.
+
+O que torna isso seguro não é a confiança de ninguém: é o alcance. Esses
+segredos autenticam contra um Keycloak **recriado a partir desse mesmo arquivo**
+a cada `docker compose up`, publicado apenas no loopback, sem nenhum dado atrás.
+Não existe ambiente em que a string valha alguma coisa.
+
+O prefixo `local-only-` é convenção, e existe para ser lida de relance —
+inclusive num `grep` de quem está auditando o repositório. Num ambiente real
+esses clientes seriam criados fora do controle de versão, com segredos rotados
+pelo IdP, e o arquivo de realm traria apenas a estrutura: clientes, escopos e
+mapeadores. **O que o repositório não pode conter, e não contém, é segredo com
+alcance fora dele** — há um job de CI que barra chave privada e arquivo `.env`
+versionados, porque convenção de nome não sustenta essa garantia sozinha.
+
 As chaves públicas são obtidas do JWKS na subida — e a subida falha se não
 vierem —, mantidas em memória e atualizadas por ticker. Um `kid` desconhecido
 força uma atualização imediata, com limite de frequência, porque é assim que a
