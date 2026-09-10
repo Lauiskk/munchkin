@@ -181,7 +181,7 @@ gate-domain-pure:
 
 ##: nenhum documento de trabalho versionado
 gate-private-docs:
-	@hits=$$(git ls-files | grep -E '^(GUIA-PESSOAL\.md|AGENTS\.md|CLAUDE\.md|PATTERNS\.md|PATTERNS/|docs/(CHALLENGE\.md|adr/|checkpoints/|sdd/|templates/))' || true); \
+	@hits=$$(git ls-files | grep -E '^(GUIA-PESSOAL\.md|AGENTS\.md|CLAUDE\.md|PATTERNS\.md|PATTERNS/|docs/(CHALLENGE\.md|adr/|checkpoints/|sdd/|qa/|templates/))' || true); \
 	if [ -n "$$hits" ]; then \
 	  echo "✗ documento de trabalho versionado (deve permanecer local):"; \
 	  echo "$$hits"; exit 1; fi; \
