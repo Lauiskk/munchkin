@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/fx"
 
+	"github.com/Lauiskk/munchkin/internal/adapter/tracing"
 	"github.com/Lauiskk/munchkin/internal/app"
 	"github.com/Lauiskk/munchkin/internal/app/outbox"
 	"github.com/Lauiskk/munchkin/internal/config"
@@ -42,7 +43,8 @@ func newOutboxDispatcher(
 
 // startOutboxPublisher amarra o publicador da outbox ao ciclo de vida.
 func startOutboxPublisher(
-	lc fx.Lifecycle, dispatcher *outbox.Dispatcher, cfg config.Config, log *slog.Logger,
+	lc fx.Lifecycle, dispatcher *outbox.Dispatcher, cfg config.Config,
+	log *slog.Logger, tracer *tracing.Tracer,
 ) {
-	iniciar(lc, "outbox.publisher", dispatcher.RunOnce, cfg.Worker.OutboxInterval, log)
+	iniciar(lc, "outbox.publisher", dispatcher.RunOnce, cfg.Worker.OutboxInterval, log, tracer)
 }
