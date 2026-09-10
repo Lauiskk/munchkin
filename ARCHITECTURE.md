@@ -916,6 +916,15 @@ segue são diferenciais opcionais não feitos, e limitações declaradas.
   correto — confirmar dinheiro cujos livros não fecham seria pior que falhar —,
   mas é uma forma nova de a transação falhar, introduzida por um diferencial
   opcional. Ela só dispara se alguém escrever partidas por fora do par.
+- **O limite do `Money` vale por valor e não compõe para o agregado.** Cada
+  saldo cabe em ±92.233.720.368.547.758,07, mas o balancete SOMA todas as
+  carteiras de uma moeda, e duas perto do teto somam além dele. Quando isso
+  acontece o relatório recusa por extenso, nomeando conta e moeda, em vez de
+  devolver um total truncado — número errado num relatório de conferência é pior
+  que relatório que se declara indisponível. A verificação de que os livros
+  fecham não depende disso: ela é uma contagem, e continua respondendo. Achado
+  numa passada de QA, junto com o estouro no crédito que virou
+  `BALANCE_LIMIT_EXCEEDED`.
 - **O trace não atravessa a outbox.** Uma operação HTTP e a publicação do evento
   que ela gerou são dois traces distintos, ligados apenas pelo `correlationId`
   que ambos carregam. Ligá-los exigiria persistir o `traceparent` na tabela da

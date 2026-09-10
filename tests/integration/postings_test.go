@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	appledger "github.com/Lauiskk/munchkin/internal/app/ledger"
 	appwallet "github.com/Lauiskk/munchkin/internal/app/wallet"
 	domain "github.com/Lauiskk/munchkin/internal/domain/wagering"
 	domainwallet "github.com/Lauiskk/munchkin/internal/domain/wallet"
@@ -335,4 +336,36 @@ func (a ambienteExtrato) carteiraCom(t *testing.T, saldo string) (domainwallet.I
 	})
 	require.NoError(t, err)
 	return out.Wallet.ID(), jogador
+}
+
+// TestBalanceteDizPorExtensoQuandoOTotalNaoCabe guarda o desfecho de um total
+// que estoura o int64.
+//
+// Achado numa passada de QA: com duas carteiras perto do teto, o balancete
+// respondia 500 "erro inesperado", e o log trazia só o erro de Scan do driver.
+// A causa é que SUM(bigint) no PostgreSQL devolve numeric — que não estoura —,
+// e o estouro acontece do lado de Go.
+//
+// O que o teste fixa: o limite do Money vale por VALOR e NÃO COMPÕE para o
+// agregado. Somar todas as carteiras de uma moeda pode passar do teto sem que
+// nenhuma delas tenha passado. É limite declarado, e a mensagem tem de nomear a
+// conta e a moeda para que quem opera saiba o que aconteceu.
+func TestBalanceteDizPorExtensoQuandoOTotalNaoCabe(t *testing.T) {
+	a := novoAmbienteExtrato(t)
+	const teto = "92233720368547758.07"
+
+	// Duas carteiras no teto: cada uma cabe, a soma das duas não.
+	a.carteiraCom(t, teto)
+	a.carteiraCom(t, teto)
+
+	_, err := a.balancer.Run(a.ctx)
+
+	require.Error(t, err, "o total não cabe: o relatório tem de dizer isso")
+	require.ErrorIs(t, err, appledger.ErrTotalNaoRepresentavel)
+	// A consulta ordena por (moeda, tipo de conta), então a conta da casa é a
+	// primeira a estourar — e é ela que a mensagem nomeia.
+	assert.Contains(t, err.Error(), "HOUSE")
+	assert.Contains(t, err.Error(), "BRL", "a mensagem nomeia a conta e a moeda")
+	assert.NotContains(t, err.Error(), "Scan error",
+		"o erro do driver não pode vazar como se fosse a explicação")
 }

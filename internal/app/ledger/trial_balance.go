@@ -7,11 +7,24 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	domain "github.com/Lauiskk/munchkin/internal/domain/ledger"
 	"github.com/Lauiskk/munchkin/internal/domain/money"
 )
+
+// ErrTotalNaoRepresentavel indica que o total de uma conta não cabe no int64.
+//
+// O limite do Money vale por VALOR, e o balancete soma todas as carteiras de uma
+// moeda: mil carteiras perto do teto somam além dele. O limite por valor não
+// compõe para o agregado, e essa distinção não estava declarada em lugar nenhum
+// até uma passada de QA encontrar o relatório respondendo 500.
+//
+// Não é recusa de negócio nem indisponibilidade: é um limite de representação
+// do relatório, e dizê-lo por extenso vale mais para quem opera do que o
+// "erro inesperado" que aparecia antes.
+var ErrTotalNaoRepresentavel = errors.New("total da conta fora da faixa representável")
 
 // AccountSum é o total de um tipo de conta numa moeda, como o banco o devolve.
 type AccountSum struct {

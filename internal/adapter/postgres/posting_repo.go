@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -83,7 +84,7 @@ func (r *PostingRepository) TrialBalance(
 	var linhas []struct {
 		Currency   string `gorm:"column:currency"`
 		Kind       string `gorm:"column:account_kind"`
-		TotalMinor int64  `gorm:"column:total_minor"`
+		TotalMinor string `gorm:"column:total_minor"`
 		Postings   int64  `gorm:"column:postings"`
 		Unbalanced int64  `gorm:"column:unbalanced"`
 	}
@@ -124,10 +125,20 @@ func (r *PostingRepository) TrialBalance(
 			return appledger.TrialBalanceSnapshot{},
 				fmt.Errorf("%w: tipo de conta %q", ledger.ErrInvalidAccount, l.Kind)
 		}
+		// SUM(bigint) no PostgreSQL devolve numeric, que não estoura — quem
+		// estoura é o int64 do lado de cá. Lido como texto e convertido aqui, o
+		// limite vira uma frase que nomeia a conta e a moeda, em vez do erro de
+		// Scan do driver escapando como 500 "erro inesperado".
+		total, err := strconv.ParseInt(l.TotalMinor, 10, 64)
+		if err != nil {
+			return appledger.TrialBalanceSnapshot{}, fmt.Errorf(
+				"%w: %s em %s soma %s", appledger.ErrTotalNaoRepresentavel,
+				l.Kind, l.Currency, l.TotalMinor)
+		}
 		visao.Sums = append(visao.Sums, appledger.AccountSum{
 			Currency:   moeda,
 			Kind:       tipo,
-			TotalMinor: l.TotalMinor,
+			TotalMinor: total,
 			Postings:   l.Postings,
 		})
 		// O valor repete em toda linha porque a consulta é uma só — é o preço
