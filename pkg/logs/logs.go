@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"os"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/Lauiskk/munchkin/internal/config"
 	"github.com/Lauiskk/munchkin/pkg/correlation"
 )
@@ -28,6 +30,7 @@ const (
 	KeyEventID       = "eventId"
 	KeyEventType     = "eventType"
 	KeyAggregateID   = "aggregateId"
+	KeyTraceID       = "traceId"
 	KeyError         = "error"
 )
 
@@ -69,6 +72,16 @@ type contextHandler struct {
 func (h *contextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if id := correlation.From(ctx); id != "" {
 		r.AddAttrs(slog.String(KeyCorrelationID, id))
+	}
+	// O identificador do trace entra em TODA linha, e não só na do fim da
+	// requisição. É o que liga um log a um trace: sem ele, quem tem o trace não
+	// acha a linha correspondente, e quem tem a linha não acha o trace — e as
+	// duas ferramentas ficam sendo duas, em vez de uma.
+	//
+	// Com o tracing desligado o span é nulo, o contexto não é válido, e nada é
+	// acrescentado.
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		r.AddAttrs(slog.String(KeyTraceID, sc.TraceID().String()))
 	}
 	return h.Handler.Handle(ctx, r)
 }
