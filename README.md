@@ -9,6 +9,20 @@ estão em [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
+## Índice
+
+| Para | Vá para |
+|---|---|
+| Subir e usar | [Como rodar](#como-rodar) · [Autenticação](#autenticação) · [Exemplos de chamada](#exemplos-de-chamada) |
+| Entender o contrato | [Operação financeira](#operação-financeira) · [Reversões](#reversões) · [Extrato e reconciliação](#extrato-e-reconciliação) · [Contrato da API](#contrato-da-api) |
+| Mensageria | [Eventos e filas](#eventos-e-filas) · [Entrada por mensageria](#entrada-por-mensageria) |
+| Operar | [Migrations](#migrations) · [Banco de dados](#banco-de-dados) · [Observabilidade](#observabilidade) · [Portas](#portas) |
+| Verificar | [Testes](#testes) · [Gates](#gates) |
+
+As decisões de arquitetura — dinheiro, transações, idempotência, locks,
+reversões, inbox/outbox, autenticação, shutdown, limitações e trabalho não
+concluído — estão no [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## Estado atual
 
 > Atualizado a cada etapa. ✅ significa implementado **e** verificado; 🟡
@@ -166,9 +180,9 @@ make test-race          # unitários com detector de corrida
 make gates              # gates dos critérios eliminatórios
 make lint
 
-make test-integration   # infraestrutura real em container
-make test-concurrency   # 50 envios paralelos, disputa 80+80, múltiplos processos
-make test-recovery      # interrupção entre commit e remoção, publishers concorrentes
+make test-integration   # PostgreSQL, Keycloak e LocalStack reais, em container
+make test-concurrency   # goroutines disputando: 80+80, 50 envios, HTTP x fila
+make test-recovery      # três PROCESSOS: kill -9, pendência órfã, reentrega
 ```
 
 Os três últimos rodam sob a build tag `integration`, então `go test ./...` não
