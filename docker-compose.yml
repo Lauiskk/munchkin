@@ -192,6 +192,11 @@ services:
       # visível. Aqui ele é elevado para o que o ambiente local aguenta.
       WORKER_OUTBOX_BATCH: "${WORKER_OUTBOX_BATCH:-500}"
       WORKER_OUTBOX_INTERVAL: "${WORKER_OUTBOX_INTERVAL:-500ms}"
+      # Tracing DESLIGADO por padrão. Ligue junto do profile de
+      # observabilidade: TRACING_ENABLED=true docker compose --profile observability up -d
+      TRACING_ENABLED: "${TRACING_ENABLED:-false}"
+      TRACING_ENDPOINT: "${TRACING_ENDPOINT:-http://jaeger:4318}"
+      TRACING_SAMPLE_RATIO: "${TRACING_SAMPLE_RATIO:-1.0}"
     ports:
       # API_HOST_PORT é a porta na SUA máquina; HTTP_PORT acima é a porta
       # dentro do container, que é sempre 8080. Usar o mesmo nome para as duas
@@ -224,6 +229,23 @@ services:
       - ALL
     tmpfs:
       - /tmp:noexec,nosuid,nodev,size=16M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.66.0
+    container_name: munchkin_jaeger
+    # Diferencial opcional pelo §12, e o tracing da aplicação vem desligado: sem
+    # TRACING_ENABLED=true, este container fica no ar sem receber nada.
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
