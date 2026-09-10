@@ -314,9 +314,10 @@ dispara não prova nada.
 | Métricas e documentação | 9092 |
 | Prometheus | 9091 |
 | Grafana | 3000 |
+| Jaeger | 16686 (`JAEGER_UI_PORT`) |
 
 Ajustáveis pelo `.env`. O compose padrão sobe Keycloak, PostgreSQL, LocalStack e
-a aplicação; o Prometheus fica atrás de `--profile observability`.
+a aplicação; Prometheus e Jaeger ficam atrás de `--profile observability`.
 
 ## Exemplos de chamada
 
@@ -695,8 +696,43 @@ docker compose --profile observability up -d
 open http://localhost:9091      # Prometheus, com o alvo munchkin em UP
 ```
 
-Grafana, Loki, dashboards e tracing OpenTelemetry são diferenciais opcionais
-pelo §12 e **não foram feitos**.
+**Tracing** OpenTelemetry, diferencial opcional do §12, **desligado por padrão**.
+Sem `TRACING_ENABLED=true` não há exportador, não há goroutine de envio e não há
+span alocado por requisição — o provedor é nulo. O padrão é esse porque um
+exportador ativo por engano manda dados de operação para um endereço configurado
+em algum lugar.
+
+```sh
+TRACING_ENABLED=true docker compose --profile observability up -d
+open http://localhost:16686     # Jaeger
+```
+
+Ligado, um trace cobre a requisição inteira até as consultas do banco:
+
+```
+▸ POST /wallets                                   8.81ms
+  └ gorm.Create  1.36ms   └ gorm.Create  1.31ms
+  └ gorm.Raw     1.04ms   └ gorm.Create  0.57ms   └ gorm.Create  0.31ms
+```
+
+O nome do span é o **template** da rota — `GET /wallets/{walletId}`, nunca o
+identificador — pela mesma razão que nenhum rótulo de métrica carrega
+identificador. Os workers abrem um span por rodada, para que as consultas de
+fundo não apareçam órfãs.
+
+Log e trace se apontam: **toda** linha de log carrega `traceId` quando há span, e
+o span de servidor carrega `correlation.id`. Sem esse par, quem tem um não acha o
+outro. Um `traceparent` recebido no cabeçalho continua o mesmo trace — a
+propagação W3C fica registrada mesmo com o tracing desligado, para não quebrar o
+trace de quem chamou.
+
+O trace **não atravessa a outbox**: a requisição que grava o evento e a
+publicação que acontece depois são dois traces distintos, ligados pelo
+`correlationId`. Ligá-los exigiria persistir o `traceparent` numa tabela do
+caminho financeiro, e o ganho não paga o risco num extra opcional.
+
+Grafana, Loki e dashboards são diferenciais opcionais pelo §12 e **não foram
+feitos**.
 
 ## Migrations
 

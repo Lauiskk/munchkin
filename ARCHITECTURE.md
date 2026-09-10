@@ -772,6 +772,30 @@ A camada de aplicação não conhece Prometheus: chama uma porta estreita, como 
 com persistência e transporte, e existe uma implementação nula para composição
 sem observabilidade.
 
+**Tracing OpenTelemetry, desligado por padrão.** Diferencial opcional do §12.
+Sem configuração explícita o provedor é nulo: nenhum exportador, nenhuma
+goroutine de envio, nenhum span alocado por requisição. O padrão é esse por
+segurança antes de custo — um exportador ativo por engano manda dados de
+operação para um endereço configurado em algum lugar.
+
+O desligado ser um provedor nulo, e não um `if` em cada ponto instrumentado, é o
+que mantém o custo em zero sem espalhar condicional pelo código.
+
+Ligado, o trace cobre a requisição, as consultas do banco e as rodadas de
+worker. O span é nomeado pelo **template** da rota, nunca pelo identificador —
+mesma regra de cardinalidade fechada dos rótulos de métrica. Atributo de span
+carrega identificador, nunca valor ou saldo: quem lê um trace não precisa saber
+quanto foi apostado para diagnosticar latência.
+
+**Log e trace se apontam.** Toda linha de log carrega `traceId` quando há span
+válido no contexto, e o span de servidor carrega `correlation.id`. Sem esse par,
+quem tem um não acha o outro.
+
+**Propagação W3C, registrada mesmo desligada.** O propagador só lê e escreve
+cabeçalho: um `traceparent` que atravessa este serviço continua válido para quem
+está do outro lado. O `traceparent` recebido é dado externo, mas decide apenas o
+identificador do trace — não autorização nem roteamento.
+
 Health checks separam vivacidade do processo de prontidão das dependências.
 
 ## 14. Interpretações adotadas
@@ -826,7 +850,9 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 - **Fiber roda sobre `fasthttp`**, que não é `net/http`. O `context.Context` da
   aplicação é carregado por `c.UserContext()`, e a semântica de cancelamento
   difere da biblioteca padrão. Um gate proíbe o uso do contexto errado nos
-  handlers, mas a diferença existe e é relevante para instrumentação futura.
+  handlers, mas a diferença existe: a instrumentação de tracing precisou de um
+  portador de cabeçalhos próprio, porque o ecossistema OpenTelemetry pressupõe
+  `http.Header`.
 - **Reversão parcial não é suportada**, conforme o escopo definido.
 - **A entrada por SQS não é autenticada por token.** O `providerId` vem do corpo,
   e a fronteira de confiança é a política de acesso da fila. Detalhado no §9;
@@ -845,14 +871,16 @@ Esta seção é mantida honesta ao longo do desenvolvimento. A coluna de estado 
 **Os dezesseis checkpoints do núcleo estão implementados e verificados.** O que
 segue são diferenciais opcionais não feitos, e limitações declaradas.
 
-- **Grafana, Loki, dashboards e tracing OpenTelemetry não foram feitos.** O §12
-  os trata como diferencial opcional, e o núcleo ainda tem etapas de verificação
-  pela frente. Ficam declarados como não feitos, e não meio feitos.
+- **Grafana, Loki e dashboards não foram feitos.** O §12 os trata como
+  diferencial opcional. Ficam declarados como não feitos, e não meio feitos.
+- **O trace não atravessa a outbox.** Uma operação HTTP e a publicação do evento
+  que ela gerou são dois traces distintos, ligados apenas pelo `correlationId`
+  que ambos carregam. Ligá-los exigiria persistir o `traceparent` na tabela da
+  outbox — migration nova numa tabela do caminho financeiro — e o ganho não paga
+  o risco num extra opcional. É decisão registrada, não esquecimento.
 - O contador de conflito por versão de carteira é **inalcançável** no desenho
   atual: o lock da linha impede que a versão mude sob a transação. Ele existe
   como sintoma — se um dia subir, alguma escrita escapou do caminho travado.
-- Tracing distribuído e testes de carga são diferenciais opcionais e só serão
-  considerados depois de o núcleo estar completo e verificado.
 - **A prosa do contrato de API pode envelhecer sem que nada quebre.** O gate e a
   validação cobrem rotas, códigos de falha e formas de resposta; descrições em
   texto não. É a mesma limitação do `README.md`, com o mesmo remédio.
