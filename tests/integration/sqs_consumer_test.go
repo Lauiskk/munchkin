@@ -260,3 +260,72 @@ func TestRecusaDeNegocioSaiDaFilaComEventoPublicado(t *testing.T) {
 	assert.Equal(t, int64(1), a.conta(t, `SELECT count(*) FROM outbox_events
 		WHERE aggregate_id = ? AND event_type = 'WagerTransactionRejected'`, uuid.UUID(w)))
 }
+
+// TestEncerramentoDevolveAFilaOQueNaoVaiTratar guarda o comportamento que o §10
+// exige no SIGTERM.
+//
+// O enunciado dá duas saídas: concluir o trabalho em andamento dentro do prazo,
+// **ou** liberar a visibilidade para reentrega segura. A escolha é a segunda —
+// concluir manteria viva uma transação financeira enquanto o processo morre, e
+// um encerramento que espera pelo banco é um encerramento que pode não
+// acontecer.
+//
+// Antes desta devolução o sistema não fazia nenhuma das duas. Era seguro (a
+// transação desfaz, a mensagem não sai da fila, a reentrega acontece), mas só
+// depois de o visibility timeout expirar: trinta segundos de atraso por mensagem
+// em voo, a cada reinício. O `ARCHITECTURE.md` afirmava que liberava a
+// visibilidade, e não liberava — foi assim que a auditoria contra o enunciado
+// encontrou isto.
+//
+// O teste força a fila a ter visibilidade LONGA. Sem a devolução, o que sobrou
+// do lote ficaria invisível bem além da duração do caso, e o assert final
+// falharia.
+func TestEncerramentoDevolveAFilaOQueNaoVaiTratar(t *testing.T) {
+	a := novoAmbienteConsumo(t)
+	_, err := adaptersqs.API(a.cliente).SetQueueAttributes(a.ctx, &awssqs.SetQueueAttributesInput{
+		QueueUrl:   aws.String(a.cfg.TransactionsQueueURL),
+		Attributes: map[string]string{"VisibilityTimeout": "120"},
+	})
+	require.NoError(t, err)
+
+	w, p := a.carteira(t, "1000.00")
+
+	// O cenário só vale se o consumidor tratou ao menos uma e sobrou ao menos
+	// uma. Em vez de torcer pelo relógio, o caso repete com folga crescente até
+	// o cenário acontecer — e falha se nunca acontecer.
+	var tratadas int
+	for _, folga := range []time.Duration{20, 60, 150, 400, 1000} {
+		sufixo := uuid.New().String()[:8]
+		for i := 0; i < 6; i++ {
+			id := fmt.Sprintf("m-%s-%d", sufixo, i)
+			a.publicar(t, id, mensagemDeAposta(id, id, w, p, "BET", "1.00"))
+		}
+
+		ctx, cancelar := context.WithCancel(a.ctx)
+		go func() { time.Sleep(folga * time.Millisecond); cancelar() }()
+		tratadas, _ = a.consumer.RunOnce(ctx)
+		cancelar()
+
+		if tratadas >= 1 && tratadas < 6 {
+			break
+		}
+		// Cenário inconclusivo: drena o que sobrou e tenta com mais folga.
+		for a.restamNaFila(t) > 0 {
+			ctxLimpo, cancelarLimpo := context.WithCancel(a.ctx)
+			_, _ = a.consumer.RunOnce(ctxLimpo)
+			cancelarLimpo()
+		}
+		tratadas = 0
+	}
+	require.NotZero(t, tratadas,
+		"não consegui interromper o lote no meio; o caso não teria o que provar")
+
+	// O essencial: o que sobrou está visível AGORA, e não daqui a dois minutos.
+	visiveis := a.restamNaFila(t)
+	assert.Equal(t, 6-tratadas, visiveis,
+		"o lote interrompido tem de voltar inteiro à fila, na hora")
+
+	// E devolver não é reprocessar: o que já tinha sido tratado não voltou.
+	assert.Equal(t, int64(tratadas), a.conta(t,
+		`SELECT count(*) FROM wager_transactions WHERE kind = 'BET' AND status = 'PROCESSED'`))
+}

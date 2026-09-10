@@ -54,8 +54,9 @@ workers — declara o que provê e o que consome, e o grafo é resolvido no star
 - **`OnStart`** valida configuração e dependências antes de aceitar tráfego, e
   falha rápido: chave do IdP indisponível, migration pendente ou banco
   inalcançável impedem a subida em vez de virarem erro no primeiro request.
-- **`OnStop`** para de aceitar entrada, conclui o trabalho em andamento dentro
-  do prazo e só então fecha as dependências. Fx encerra na ordem inversa da
+- **`OnStop`** para de aceitar entrada, encerra o trabalho em andamento — o HTTP
+  drenando as requisições em curso, o consumidor SQS devolvendo à fila o que não
+  vai tratar (§12) — e só então fecha as dependências. Fx encerra na ordem inversa da
   inicialização, então o pool do banco fecha depois dos workers que o usam —
   o que evita o erro clássico de derrubar a conexão sob um worker ativo.
 
@@ -766,13 +767,32 @@ por SQS.
 ## 12. Shutdown
 
 Em `SIGTERM`, na ordem: o servidor HTTP para de aceitar conexões novas e drena
-as em andamento; o consumidor SQS para de buscar trabalho e conclui o que já
-tem — ou libera a visibilidade da mensagem, para reentrega segura, se não couber
-no prazo; os workers de fundo observam o cancelamento do contexto e encerram; só
-então as dependências fecham.
+as em andamento; o consumidor SQS para de buscar trabalho e **devolve à fila**
+o que não vai tratar; os workers de fundo observam o cancelamento do contexto e
+encerram; só então as dependências fecham.
 
 Nenhum worker é interrompido no meio de uma transação sem que ela seja desfeita:
 o commit é atômico, então ou a operação inteira valeu, ou nenhuma parte dela valeu.
+
+**O consumidor não tenta concluir a mensagem em voo.** O §10 admite duas saídas
+— concluir dentro do prazo ou liberar a visibilidade — e a segunda é a escolhida.
+Concluir exigiria manter viva uma transação financeira enquanto o processo morre,
+e um encerramento que espera pelo banco é um encerramento que pode não acontecer.
+
+Então o cancelamento chega ao tratamento em curso, a transação é desfeita, a
+mensagem **não** é removida — e o consumidor chama `ChangeMessageVisibility` com
+zero nela e em todas as do lote que ainda não começaram. Elas voltam a ficar
+visíveis **na hora**, e outra instância as pega.
+
+A chamada de devolução roda num contexto descolado do cancelamento
+(`context.WithoutCancel`, com prazo próprio de 3s): feita com o contexto que
+chegou, ela falharia antes de sair do processo. Se ainda assim falhar, nada se
+perde — a mensagem continua na fila e volta quando o visibility timeout de 30s
+expirar, que era exatamente o comportamento anterior a esta devolução.
+
+*Descartado — contexto de graça para a mensagem terminar:* deixaria o desligamento
+refém do banco. O ganho seria evitar um reprocessamento que a inbox já torna
+inofensivo.
 
 ## 12.1 Resiliência a pânico
 

@@ -24,6 +24,12 @@ import (
 // maxMotivo limita o texto que acompanha uma mensagem enviada à DLQ.
 const maxMotivo = 900
 
+// prazoDeDevolucao limita o tempo gasto devolvendo mensagens à fila durante o
+// encerramento. É curto de propósito: encerrar depressa importa mais que
+// devolver a última mensagem, e o que não for devolvido volta sozinho quando o
+// visibility timeout expirar.
+const prazoDeDevolucao = 3 * time.Second
+
 // Consumer lê operações da fila e as entrega ao tratamento.
 type Consumer struct {
 	client   *Client
@@ -68,17 +74,75 @@ func (c *Consumer) RunOnce(ctx context.Context) (int, error) {
 	}
 
 	tratadas := 0
-	for _, m := range recebidas.Messages {
+	for i, m := range recebidas.Messages {
 		if ctx.Err() != nil {
-			// Encerramento: o que não foi tratado volta a ficar visível quando
-			// o visibility timeout expirar, e outra instância pega.
+			// Encerramento antes de começar esta mensagem: ela e as seguintes
+			// voltam à fila AGORA.
+			c.devolver(ctx, recebidas.Messages[i:])
 			return tratadas, ctx.Err()
 		}
 		if c.tratar(ctx, m) {
 			tratadas++
+			continue
+		}
+		if ctx.Err() != nil {
+			// O encerramento interrompeu ESTA mensagem no meio. A transação foi
+			// desfeita e ela não saiu da fila, então volta junto com as que nem
+			// chegaram a começar.
+			c.devolver(ctx, recebidas.Messages[i:])
+			return tratadas, ctx.Err()
 		}
 	}
 	return tratadas, nil
+}
+
+// devolver põe de volta na fila, imediatamente, o que o encerramento não vai
+// tratar.
+//
+// O §10 do enunciado dá duas saídas para o SIGTERM: concluir o trabalho em
+// andamento dentro do prazo, ou liberar a visibilidade para reentrega segura.
+// Esta é a segunda, e é a mais honesta das duas aqui: concluir exigiria manter
+// viva uma transação financeira enquanto o processo morre, e um encerramento
+// que espera pelo banco é um encerramento que pode não acontecer.
+//
+// Sem isto o comportamento também era seguro — a transação desfaz, a mensagem
+// não é removida e a reentrega acontece —, mas só depois de o visibility
+// timeout expirar. Trinta segundos de atraso a cada reinício, por mensagem em
+// voo, sem necessidade nenhuma.
+func (c *Consumer) devolver(ctx context.Context, ms []types.Message) {
+	if len(ms) == 0 {
+		return
+	}
+	// O contexto que chegou aqui está CANCELADO — é o encerramento. Descolar a
+	// chamada do cancelamento é o que a torna possível: sem isso o
+	// ChangeMessageVisibility falharia antes de sair do processo, e a devolução
+	// que este método existe para fazer nunca aconteceria. Os valores do
+	// contexto (correlação) seguem junto.
+	solto, cancelar := context.WithTimeout(context.WithoutCancel(ctx), prazoDeDevolucao)
+	defer cancelar()
+
+	devolvidas := 0
+	for _, m := range ms {
+		_, err := c.client.api.ChangeMessageVisibility(solto, &awssqs.ChangeMessageVisibilityInput{
+			QueueUrl:      aws.String(c.client.cfg.TransactionsQueueURL),
+			ReceiptHandle: m.ReceiptHandle,
+			// Zero: visível de novo agora, para outra instância pegar sem
+			// esperar o timeout correr.
+			VisibilityTimeout: 0,
+		})
+		if err != nil {
+			// Falhar aqui não perde nada: a mensagem continua na fila e volta
+			// quando o visibility timeout expirar, que é o comportamento que
+			// existia antes desta devolução.
+			c.log.LogAttrs(solto, slog.LevelWarn, "consumer.release_failed",
+				slog.String(logs.KeyMessageID, aws.ToString(m.MessageId)),
+				slog.String(logs.KeyError, err.Error()))
+			continue
+		}
+		devolvidas++
+	}
+	c.log.LogAttrs(solto, slog.LevelInfo, "consumer.released",
+		slog.Int("messages", devolvidas), slog.Int("pending", len(ms)))
 }
 
 // tratar processa uma mensagem e decide o destino dela.
