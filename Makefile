@@ -188,13 +188,20 @@ gate-private-docs:
 	echo "✓ nenhum documento de trabalho versionado"
 
 ## gate-failure-codes: catálogo de falhas do código igual ao do ARCHITECTURE (§7)
+#
+# A leitura do documento é presa à SEÇÃO do catálogo, não ao arquivo inteiro.
+# Varrendo tudo, qualquer outra tabela cuja primeira coluna fosse um termo em
+# caixa alta entre crases entrava na conta — foi o que aconteceu ao documentar a
+# máquina de estados, e PENDING virou "código de falha não implementado". Gate
+# que reprova por documentação legítima é gate que alguém desliga.
 # O §7 exige que todo failureCode seja estável e DOCUMENTADO. Documentação que
 # desatualiza em silêncio é pior que documentação nenhuma: ela descreve um
 # sistema que não existe. Este gate compara as duas listas.
 gate-failure-codes:
 	@codigo=$$(grep -oE 'FailureCode = "[A-Z_]+"' internal/domain/wagering/kind.go \
 	  | grep -oE '"[A-Z_]+"' | tr -d '"' | sort -u); \
-	doc=$$(grep -oE '^\| `[A-Z_]+` \|' ARCHITECTURE.md | grep -oE '[A-Z_]+' | sort -u); \
+	doc=$$(sed -n '/^### 8\.1 /,/^## /p' ARCHITECTURE.md \
+	  | grep -oE '^\| `[A-Z_]+` \|' | grep -oE '[A-Z_]+' | sort -u); \
 	if [ "$$codigo" != "$$doc" ]; then \
 	  echo "✗ o catálogo de códigos de falha diverge entre o código e o ARCHITECTURE:"; \
 	  diff <(echo "$$codigo") <(echo "$$doc") | sed 's/^/    /'; exit 1; fi; \
