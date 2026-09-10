@@ -48,6 +48,12 @@ concluído — estão no [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | 14 | Documentação de API (OpenAPI) | ✅ |
 | 15 | Testes de integração com infraestrutura real | ✅ |
 | 16 | Concorrência e recuperação | ✅ |
+| 18 | Testes de carga com k6 — *diferencial opcional* | ✅ |
+| 19 | Tracing OpenTelemetry, desligado por padrão — *diferencial opcional* | ✅ |
+
+Não há etapa 17: a documentação final não virou checkpoint próprio, e sim parte
+de cada um. Grafana, Loki, dashboards e partidas dobradas são os diferenciais
+opcionais que **não** foram feitos, e estão declarados no `ARCHITECTURE.md`.
 
 ---
 
