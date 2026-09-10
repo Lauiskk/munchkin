@@ -701,7 +701,11 @@ components:
 
     Error:
       type: object
-      required: [code, message]
+      # correlationId é obrigatório: o §14 exige que toda falha seja rastreável,
+      # e um contrato que o declara opcional permite a resposta que não se
+      # consegue investigar. O handler central sempre o preenche — o contrato
+      # passa a cobrar isso de toda resposta de erro validada na suíte.
+      required: [code, message, correlationId]
       properties:
         code:
           type: string

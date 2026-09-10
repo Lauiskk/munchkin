@@ -21,7 +21,7 @@ type errorBody struct {
 	Code          apperr.Code         `json:"code"`
 	Message       string              `json:"message"`
 	Fields        []apperr.FieldError `json:"fields,omitempty"`
-	CorrelationID string              `json:"correlationId,omitempty"`
+	CorrelationID string              `json:"correlationId"`
 }
 
 // ErrorHandler traduz qualquer erro que chegue ao topo em resposta HTTP.
