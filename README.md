@@ -66,8 +66,12 @@ foram feitos, e estão declarados no `ARCHITECTURE.md`.
 | Go | 1.27.1 | mesma versão declarada em `go.mod` e no Dockerfile |
 | Docker | 24+ | com Docker Compose v2 |
 | `make` | qualquer | |
+| `jq` | qualquer | **só para os exemplos** — extrai o token das respostas abaixo |
 
-Nada além disso: Postgres, Keycloak e LocalStack sobem em container.
+Nada além disso: Postgres, Keycloak e LocalStack sobem em container. O `jq` não
+é dependência da aplicação nem dos testes: aparece só nos `curl` deste README,
+para recortar o `access_token` da resposta do Keycloak. Sem ele, os comandos de
+build, teste e subida funcionam igual.
 
 ## Variáveis de ambiente
 
