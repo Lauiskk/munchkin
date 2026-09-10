@@ -669,12 +669,34 @@ o diagnóstico.
 **A entrada por SQS não tem token.** No HTTP o `providerId` vem do token e nunca
 do corpo; na mensagem não há alternativa, e ele vem do corpo. A fronteira de
 confiança passa a ser a **política de acesso da fila**: quem consegue publicar em
-`wager-transactions.fifo` é considerado autorizado. Esta suposição está
-declarada aqui de propósito, e não escondida — é a limitação real do desenho, e
-provisionar essa política é responsabilidade da infraestrutura, não da
-aplicação. O que a aplicação garante do seu lado é que `OPENING` continua
-recusado pela mesma validação do HTTP: um produtor que pudesse enviá-la
-creditaria carteira sem passar pela abertura.
+`wager-transactions.fifo` é considerado autorizado. É a limitação real do
+desenho, e está declarada aqui de propósito. O que a aplicação garante do seu
+lado é que `OPENING` continua recusado pela mesma validação do HTTP — um produtor
+que pudesse enviá-la creditaria carteira sem passar pela abertura.
+
+**Credencial e política, que são coisas diferentes.** O §2 do enunciado pede as
+duas, e elas respondem a perguntas distintas: a credencial diz *quem é*, a
+política diz *o que essa identidade pode fazer naquela fila*.
+
+- **Credencial.** O cliente monta credenciais estáticas explícitas em vez de usar
+  a cadeia padrão do SDK. A cadeia procura em variáveis, arquivo de perfil,
+  metadados de instância e mais alguns lugares, na ordem — e o que ela encontra
+  depende de onde o processo está rodando. Numa aplicação que move dinheiro,
+  "depende do ambiente" é o tipo de resposta que só se descobre errada em
+  produção. As três variáveis são obrigatórias no boot: sem elas a aplicação
+  **não sobe**, em vez de subir e falhar na primeira mensagem.
+- **Política.** Cada fila é criada com uma `Policy` que permite exatamente as
+  ações de quem a usa, e nada além: a de entrada é consumida (`ReceiveMessage`,
+  `DeleteMessage`, `ChangeMessageVisibility`), a de saída é apenas publicada
+  (`SendMessage`), e a DLQ recebe e é lida para diagnóstico. O princípio é o de
+  menor privilégio expresso no broker, e não na disciplina de quem configura.
+
+**O LocalStack não impõe a política — e isso fica dito.** Ele aceita qualquer
+credencial não vazia e não avalia a `Policy`. Localmente, portanto, a política é
+declaração de intenção: ela descreve o que valeria num SQS real e viaja com o
+repositório em vez de existir só na cabeça de alguém. Trocar o LocalStack por
+AWS não muda uma linha do provisionamento — muda apenas quem passa a fazer
+valer o que já está escrito.
 
 ### 9.1 Eventos gravados na outbox
 
@@ -1008,7 +1030,9 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
 - **A entrada por SQS não é autenticada por token.** O `providerId` vem do corpo,
   e a fronteira de confiança é a política de acesso da fila. Detalhado no §9;
   fica listado aqui porque é limitação do desenho, e não detalhe de
-  implementação.
+  implementação. A política é provisionada com as filas, mas o **LocalStack não
+  a impõe**: localmente ela vale como declaração, e só um broker real a faz
+  cumprir.
 - **O dono do schema no ambiente local é superusuário**, porque é o usuário de
   bootstrap da imagem do PostgreSQL. Em produção o dono seria um papel comum, e
   o superusuário não seria usado por nenhum componente da aplicação. A

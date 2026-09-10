@@ -622,11 +622,22 @@ fora dele.
 
 Três filas FIFO, provisionadas pelo LocalStack na subida:
 
-| Fila | Papel |
-|---|---|
-| `wager-events.fifo` | Destino dos eventos de saída publicados pela outbox |
-| `wager-transactions.fifo` | Entrada de operações por mensageria (etapa 11) |
-| `wager-transactions-dlq.fifo` | Destino do redrive da anterior, após 5 recebimentos |
+| Fila | Papel | Ações permitidas pela política |
+|---|---|---|
+| `wager-events.fifo` | Destino dos eventos de saída publicados pela outbox | apenas `SendMessage` |
+| `wager-transactions.fifo` | Entrada de operações por mensageria (etapa 11) | `Receive`, `Delete`, `ChangeMessageVisibility` |
+| `wager-transactions-dlq.fifo` | Destino do redrive da anterior, após 5 recebimentos | `Send`, `Receive`, `Delete` |
+
+Cada fila nasce com uma `Policy` que permite exatamente as ações de quem a usa —
+a de saída só é publicada, a de entrada só é consumida. **O LocalStack não impõe
+a política**: localmente ela é declaração de intenção, e só um SQS real a faz
+cumprir. Trocar um pelo outro não muda uma linha do provisionamento.
+
+```sh
+docker compose exec localstack awslocal sqs get-queue-attributes \
+  --queue-url http://localstack:4566/000000000000/wager-events.fifo \
+  --attribute-names Policy
+```
 
 ```sh
 docker compose exec localstack awslocal sqs list-queues
