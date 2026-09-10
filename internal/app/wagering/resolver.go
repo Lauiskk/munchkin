@@ -92,6 +92,7 @@ func (r *Resolver) RunOnce(ctx context.Context) (int, error) {
 			r.log.LogAttrs(ctx, slog.LevelError, "resolver.failed",
 				slog.String(logs.KeyTransactionID, c.TransactionID.String()),
 				slog.String(logs.KeyError, err.Error()))
+			r.contarFalha(ctx, c, err, agora)
 			continue
 		}
 		if feito {
@@ -187,4 +188,74 @@ func (r *Resolver) aplicarRetomada(
 // duas filas com parâmetros diferentes e a mesma política.
 func Backoff(tentativa int) time.Duration {
 	return backoff.Exponential(tentativa, backoffBase, backoffMax)
+}
+
+// contarFalha registra que uma pendência não pôde ser tratada, e desiste dela
+// quando insistir deixa de fazer sentido.
+//
+// Antes disto, uma pendência que falhasse por algo que não sara sozinho ficava
+// girando para sempre: a transação era desfeita, o contador de tentativas não
+// avançava (ele vive dentro dela), e a linha voltava na rodada seguinte,
+// indefinidamente. O único vestígio era uma linha de log por rodada.
+//
+// É exatamente o que o §6.3 chama de FAILED — "falha permanente de
+// infraestrutura registrada para auditoria". O estado existia no domínio, no
+// schema e no contrato, e nada no sistema o alcançava.
+//
+// Duas cautelas, porque marcar dinheiro como terminal é irreversível:
+//
+//   - Indisponibilidade transitória NÃO conta. Banco fora do ar é para esperar,
+//     não para desistir, e classificá-lo como permanente terminaria operações
+//     boas durante uma manutenção.
+//   - Uma falha só não basta. O orçamento é o MESMO que a busca por referência
+//     já usa, e só quando ele se esgota a operação vira FAILED. Um erro que eu
+//     tenha classificado mal precisa se repetir MaxResolveAttempts vezes, com
+//     backoff, antes de causar dano.
+func (r *Resolver) contarFalha(
+	ctx context.Context, c PendingReference, causa error, agora time.Time,
+) {
+	if errors.Is(causa, app.ErrUnavailable) || ctx.Err() != nil {
+		return
+	}
+
+	// Transação PRÓPRIA: a que falhou já foi desfeita, e é justamente por isso
+	// que o contador não avançou junto com ela.
+	err := r.tx.Within(ctx, func(ctx context.Context) error {
+		operacao, err := r.pending.LockPendingReference(ctx, c.TransactionID, agora)
+		if errors.Is(err, app.ErrNotFound) {
+			return nil // outra instância resolveu no meio-tempo
+		}
+		if err != nil {
+			return err
+		}
+
+		tentativas := operacao.Attempts() + 1
+		if tentativas < MaxResolveAttempts {
+			if err := operacao.ScheduleRetry(agora.Add(Backoff(tentativas)), agora); err != nil {
+				return err
+			}
+			r.metrics.WorkerRetry("reference.resolver")
+			return r.processor.transactions.Settle(ctx, operacao)
+		}
+
+		r.log.LogAttrs(ctx, slog.LevelError, "resolver.permanent_failure",
+			slog.String(logs.KeyTransactionID, operacao.ID().String()),
+			slog.Int("attempts", tentativas),
+			slog.String(logs.KeyError, causa.Error()))
+
+		if err := operacao.MarkFailed(domain.FailureInternalError, agora); err != nil {
+			return err
+		}
+		// Sem evento: o §11 fixa quatro, e nenhum deles descreve isto. FAILED é
+		// registro para o operador, não notícia para o provedor — que continua
+		// podendo consultar a operação e ver o desfecho.
+		return r.processor.transactions.Settle(ctx, operacao)
+	})
+	if err != nil {
+		// Não conseguir sequer contar a falha não é motivo para parar a rodada.
+		// Na próxima passagem a pendência volta e a contagem tenta de novo.
+		r.log.LogAttrs(ctx, slog.LevelError, "resolver.failure_not_recorded",
+			slog.String(logs.KeyTransactionID, c.TransactionID.String()),
+			slog.String(logs.KeyError, err.Error()))
+	}
 }

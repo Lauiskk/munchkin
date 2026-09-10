@@ -3,6 +3,8 @@
 package integration_test
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -438,4 +440,75 @@ func TestProvedorNaoReverteAApostaDeOutro(t *testing.T) {
 	assert.Zero(t, a.conta(t, `SELECT count(*) FROM wager_transactions
 		WHERE reference_transaction_id = ?`, uuid.UUID(aposta.TransactionID)),
 		"a aposta de provider-a segue sem reversão associada")
+}
+
+// carteirasQueFalham é a costura que simula uma falha que não sara sozinha.
+//
+// Ela erra na leitura travada — o primeiro passo da retomada —, e o erro NÃO é
+// classificado como indisponibilidade transitória. É essa distinção que o
+// resolvedor usa para decidir entre insistir e desistir.
+type carteirasQueFalham struct {
+	appwagering.WalletRepository
+	falhas int
+}
+
+func (c *carteirasQueFalham) LockByID(context.Context, domainwallet.ID) (*domainwallet.Wallet, error) {
+	c.falhas++
+	return nil, errors.New("estado da carteira ilegível: linha corrompida")
+}
+
+// TestPendenciaQueNuncaResolveTerminaEmFailed guarda o estado que o §6.3 define
+// e que nada no sistema alcançava.
+//
+// `FAILED` é "falha permanente de infraestrutura registrada para auditoria".
+// Existia no domínio, no schema e no contrato do OpenAPI — e nenhum código de
+// produção chamava `MarkFailed`. Nenhuma transação jamais chegava lá.
+//
+// O buraco era concreto: uma pendência que falhasse por algo que não sara
+// sozinho girava para sempre. A transação era desfeita, o contador de tentativas
+// não avançava (ele vive dentro dela), e a linha voltava na rodada seguinte,
+// indefinidamente. O único vestígio era uma linha de log por rodada.
+func TestPendenciaQueNuncaResolveTerminaEmFailed(t *testing.T) {
+	a := novoAmbienteReversao(t)
+	w, p := a.carteira(t, "100.00")
+
+	// Uma reversão sem referência: fica PENDING_REFERENCE, que é o único estado
+	// durável e não terminal do sistema.
+	out, err := a.processor.Process(a.ctx,
+		reversao(t, w, p, "estorno-orfao", domain.Refund, "40.00", "aposta-que-nao-existe"))
+	require.NoError(t, err)
+	require.Equal(t, domain.PendingReference, out.Status)
+
+	// A partir daqui o resolvedor não consegue mais ler a carteira.
+	quebradas := &carteirasQueFalham{WalletRepository: postgres.NewWalletRepository(a.db)}
+	resolvedor := appwagering.NewResolver(a.db, postgres.NewTransactionRepository(a.db),
+		quebradas, a.processor, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		a.relogio, a.metricas)
+
+	estado := func() (string, string) {
+		var status, codigo string
+		require.NoError(t, a.db.Session(a.ctx).Raw(
+			`SELECT status, COALESCE(failure_code, '') FROM wager_transactions
+			  WHERE external_transaction_id = 'estorno-orfao'`).Row().Scan(&status, &codigo))
+		return status, codigo
+	}
+
+	// Cada rodada avança o relógio além do backoff, para a pendência voltar a
+	// estar vencida.
+	for i := 0; i < appwagering.MaxResolveAttempts+2; i++ {
+		_, _ = resolvedor.RunOnce(a.ctx)
+		a.relogio.avancar(24 * time.Hour)
+	}
+
+	status, codigo := estado()
+	assert.Equal(t, string(domain.Failed), status,
+		"insistir para sempre não é desfecho: a falha permanente tem de ficar registrada")
+	assert.Equal(t, string(domain.FailureInternalError), codigo)
+
+	// E o dinheiro não se moveu: FAILED é registro de auditoria, não operação.
+	assert.Equal(t, "100.00 BRL", a.saldo(t, w))
+
+	// Uma falha só não bastaria — o orçamento é o mesmo da busca por referência,
+	// para que um erro mal classificado precise se repetir antes de causar dano.
+	assert.GreaterOrEqual(t, quebradas.falhas, appwagering.MaxResolveAttempts)
 }
