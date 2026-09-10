@@ -182,6 +182,16 @@ identificou — 404 para anônimo contaria quais caminhos existem.
 
 ## Testes
 
+Os quatro comandos que o enunciado lista funcionam como estão. Ao lado, o
+equivalente deste repositório, que é o que os gates e o CI executam:
+
+| Comando do enunciado | Equivalente aqui |
+|---|---|
+| `docker compose up --build` | `make up` |
+| `go test ./...` | `make test` |
+| `go test -race ./...` | `make test-race` |
+| `go vet ./...` | `make gates` (inclui `gate-vet` e `gate-fmt`) |
+
 ```sh
 make test               # unitários
 make test-race          # unitários com detector de corrida
