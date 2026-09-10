@@ -33,6 +33,7 @@ type Config struct {
 	Worker  Worker
 	AWS     AWS
 	Metrics Metrics
+	Tracing Tracing
 }
 
 // App identifica o ambiente de execução.
@@ -96,6 +97,21 @@ type Worker struct {
 	// Precisa ser maior que o tempo de uma publicação, com folga, e menor que
 	// o que se aceita esperar quando uma instância morre segurando o registro.
 	OutboxLease time.Duration
+}
+
+// Tracing reúne o rastreamento distribuído.
+type Tracing struct {
+	// Enabled é falso por padrão, e isso é decisão de segurança além de risco:
+	// um exportador ativo por engano manda dados de operação para um endereço
+	// configurado em algum lugar. O padrão seguro é não mandar.
+	Enabled bool
+	// Endpoint é o coletor OTLP.
+	Endpoint string
+	// ServiceName identifica este serviço no trace.
+	ServiceName string
+	// SampleRatio é a fração amostrada, de 0 a 1. Um trace por requisição é
+	// caro em volume; a amostragem é o que torna o rastreamento pagável.
+	SampleRatio float64
 }
 
 // Metrics reúne a exposição de métricas.
@@ -254,6 +270,12 @@ func Load() (Config, error) {
 		},
 		Metrics: Metrics{
 			Port: v.port("METRICS_PORT", 9090),
+		},
+		Tracing: Tracing{
+			Enabled:     v.optional("TRACING_ENABLED") == "true",
+			Endpoint:    v.optionalDefault("TRACING_ENDPOINT", "http://jaeger:4318"),
+			ServiceName: v.optionalDefault("TRACING_SERVICE_NAME", "munchkin"),
+			SampleRatio: v.ratio("TRACING_SAMPLE_RATIO", 1.0),
 		},
 		AWS: AWS{
 			Region:               v.required("AWS_REGION"),
@@ -420,4 +442,29 @@ func (v *validator) duration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// optionalDefault devolve o valor da variável, ou o padrão quando ausente.
+func (v *validator) optionalDefault(key, fallback string) string {
+	if raw := v.optional(key); raw != "" {
+		return raw
+	}
+	return fallback
+}
+
+// ratio lê uma fração entre 0 e 1.
+//
+// Fora do intervalo é erro de configuração, e não um valor a ser corrigido em
+// silêncio: quem escreveu 50 querendo 50% precisa saber que não é assim.
+func (v *validator) ratio(key string, fallback float64) float64 {
+	raw := v.optional(key)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil || n < 0 || n > 1 {
+		v.fail("%s: %q não é uma fração entre 0 e 1", key, raw)
+		return fallback
+	}
+	return n
 }
