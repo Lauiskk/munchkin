@@ -211,6 +211,10 @@ const (
 	FailureWalletPlayerMismatch FailureCode = "WALLET_PLAYER_MISMATCH"
 	// FailureInvalidAmountForKind — o valor não é o exigido pelo tipo.
 	FailureInvalidAmountForKind FailureCode = "INVALID_AMOUNT_FOR_KIND"
+	// FailureBalanceLimitExceeded — o crédito levaria o saldo além do maior
+	// valor representável. A entrada é válida e a carteira existe; é o
+	// RESULTADO que não cabe, e isso é recusa de negócio, não defeito.
+	FailureBalanceLimitExceeded FailureCode = "BALANCE_LIMIT_EXCEEDED"
 	// FailureInternalError — falha permanente de infraestrutura.
 	FailureInternalError FailureCode = "INTERNAL_ERROR"
 )
@@ -221,7 +225,8 @@ var failureCodesValidos = map[FailureCode]struct{}{
 	FailureReferenceAlreadyReversed: {}, FailureReferenceMismatch: {},
 	FailureAmountMismatch: {}, FailureCurrencyMismatch: {},
 	FailureWalletNotFound: {}, FailureWalletPlayerMismatch: {},
-	FailureInvalidAmountForKind: {}, FailureInternalError: {},
+	FailureInvalidAmountForKind: {}, FailureBalanceLimitExceeded: {},
+	FailureInternalError: {},
 }
 
 // ParseFailureCode valida o código de falha.

@@ -525,6 +525,7 @@ pode ajustar e reenviar, versus resultado definitivo.
 | `WALLET_NOT_FOUND` | A carteira indicada não existe | Sim — corrigir o identificador |
 | `WALLET_PLAYER_MISMATCH` | A carteira não pertence ao jogador informado | Sim — corrigir jogador ou carteira |
 | `INVALID_AMOUNT_FOR_KIND` | O valor não é o exigido pelo tipo (`LOSS` exige zero; os demais, positivo) | Sim — corrigir o valor |
+| `BALANCE_LIMIT_EXCEEDED` | O crédito levaria o saldo além do maior valor representável (±92.233.720.368.547.758,07) | Não com o mesmo valor — o resultado não cabe, e repetir dá a mesma recusa |
 | `INTERNAL_ERROR` | Falha permanente de infraestrutura, registrada para auditoria | Não — o registro existe para o operador investigar |
 
 Os dois primeiros são deliberadamente distintos, como o §7 exige. Para quem

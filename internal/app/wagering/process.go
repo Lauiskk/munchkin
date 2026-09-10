@@ -227,6 +227,14 @@ func (p *Processor) aplicar(
 	versaoAnterior := w.Version()
 
 	d, err := p.decidir(ctx, w, operacao, agora)
+	// Um crédito que estoura o representável é RECUSA, não defeito: a entrada é
+	// válida, a carteira existe, e o resultado é o mesmo toda vez que tentarem.
+	// Sem este desvio o erro cai no caso genérico e vira 500 — que diz "há um
+	// bug aqui, não repita" para algo determinístico e auditável. Cobre WIN,
+	// REFUND e ROLLBACK de uma vez porque os três creditam.
+	if errors.Is(err, money.ErrOverflow) {
+		d, err = decisao{recusa: domain.FailureBalanceLimitExceeded}, nil
+	}
 	if err != nil {
 		return Output{}, err
 	}

@@ -317,3 +317,56 @@ func TestProvedorNaoEnxergaTransacaoDeOutro(t *testing.T) {
 		assert.Equal(t, out.TransactionID, encontrada.ID())
 	})
 }
+
+// TestCreditoQueEstouraORepresentavelEhRecusaENaoDefeito guarda o desfecho de um
+// crédito que não cabe no int64.
+//
+// Achado numa passada de QA: a carteira podia ser aberta no teto exato
+// (92.233.720.368.547.758,07) e um WIN de um centavo sobre ela devolvia 500
+// INTERNAL_ERROR. A entrada era válida, a carteira existia e o resultado era o
+// mesmo toda vez — tudo o que descreve uma RECUSA. Um 500 ali diz a quem integra
+// "há um defeito, não repita" sobre algo determinístico, e some do relatório de
+// recusas por código de falha.
+func TestCreditoQueEstouraORepresentavelEhRecusaENaoDefeito(t *testing.T) {
+	a := novoAmbienteOperacao(t)
+	const teto = "92233720368547758.07"
+	w, p := a.carteira(t, teto)
+
+	out, err := a.processor.Process(a.ctx, operacao(t, w, p, "estouro-1", domain.Win, "0.01"))
+
+	require.NoError(t, err, "estouro é recusa de negócio, não erro devolvido ao chamador")
+	assert.Equal(t, domain.Rejected, out.Status)
+	assert.Equal(t, domain.FailureBalanceLimitExceeded, out.FailureCode)
+	assert.Equal(t, teto+" BRL", a.saldo(t, w), "a recusa não pode encostar no saldo")
+
+	// A recusa é persistida e auditável como qualquer outra, e o reenvio devolve
+	// o mesmo desfecho em vez de tentar de novo.
+	repetida, err := a.processor.Process(a.ctx, operacao(t, w, p, "estouro-1", domain.Win, "0.01"))
+	require.NoError(t, err)
+	assert.True(t, repetida.IdempotentReplay)
+	assert.Equal(t, domain.FailureBalanceLimitExceeded, repetida.FailureCode)
+}
+
+// TestReversaoQueEstouraORepresentavelTambemEhRecusa cobre o outro caminho que
+// credita: REFUND devolve dinheiro, e devolver também pode não caber.
+func TestReversaoQueEstouraORepresentavelTambemEhRecusa(t *testing.T) {
+	a := novoAmbienteOperacao(t)
+	const teto = "92233720368547758.07"
+	w, p := a.carteira(t, teto)
+
+	// Debita, para caber; devolve, para não caber de novo — com a carteira
+	// recreditada ao teto no meio do caminho.
+	_, err := a.processor.Process(a.ctx, operacao(t, w, p, "aposta-1", domain.Bet, "10.00"))
+	require.NoError(t, err)
+	_, err = a.processor.Process(a.ctx, operacao(t, w, p, "ganho-1", domain.Win, "10.00"))
+	require.NoError(t, err)
+
+	entrada := operacao(t, w, p, "devolucao-1", domain.Refund, "10.00")
+	entrada.ReferenceExternalID = "aposta-1"
+	out, err := a.processor.Process(a.ctx, entrada)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.Rejected, out.Status)
+	assert.Equal(t, domain.FailureBalanceLimitExceeded, out.FailureCode)
+	assert.Equal(t, teto+" BRL", a.saldo(t, w))
+}

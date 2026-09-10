@@ -568,6 +568,7 @@ components:
         - WALLET_NOT_FOUND
         - WALLET_PLAYER_MISMATCH
         - INVALID_AMOUNT_FOR_KIND
+        - BALANCE_LIMIT_EXCEEDED
         - INTERNAL_ERROR
 
     TransactionResult:
