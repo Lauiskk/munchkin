@@ -326,6 +326,55 @@ revogado do papel da aplicação.
 conferência que a reconciliação por carteira não faz: ela olha uma carteira de
 cada vez, e o balancete olha a plataforma inteira.
 
+### 4.4 Máquina de estados da operação
+
+Declarada em dado, não em condicionais espalhadas —
+`internal/domain/wagering/kind.go`. Estado ausente do mapa, ou com conjunto
+vazio, é terminal.
+
+| Estado | Significado | Pode ir para |
+|---|---|---|
+| `PENDING` | Registro aceito, processamento não concluído | `PENDING_REFERENCE`, `PROCESSED`, `REJECTED`, `FAILED` |
+| `PENDING_REFERENCE` | Depende de uma referência que ainda não chegou | `PROCESSED`, `REJECTED`, `FAILED` |
+| `PROCESSED` | Concluída com sucesso | — terminal |
+| `REJECTED` | Recusada por regra de negócio | — terminal |
+| `FAILED` | Falha permanente registrada para auditoria | — terminal |
+
+Terminal não transiciona nem para si mesmo: um replay **consulta** o resultado
+persistido, nunca reaplica. A validação é do domínio, e uma transição não
+declarada é erro tipado (`ErrInvalidTransition`), não um `if` esquecido.
+
+**`PENDING` nunca é confirmado no caminho feliz.** O enunciado permite concluir
+de forma síncrona operações sem dependências, e é o que fazemos: o `INSERT` em
+`PENDING` e o `UPDATE` para o estado final acontecem na mesma transação. Só
+`PENDING_REFERENCE` chega ao disco em estado não terminal — e é por isso que ele
+é o único que precisa de worker de retomada.
+
+**Transitória ou permanente: quem decide, e o que muda.** A mesma pergunta
+aparece em três lugares, e a resposta muda em cada um:
+
+| Onde | Transitória | Permanente |
+|---|---|---|
+| HTTP | `503 SERVICE_UNAVAILABLE`, retentável. Nada persiste | `500 INTERNAL_ERROR`, com `correlationId` |
+| Mensagem na fila | Mensagem mantida; volta a ficar visível e é retentada; o redrive a leva à DLQ na quinta entrega | DLQ **imediatamente**, com o motivo em atributo — envelope inválido, campo irrecuperável, reentrega divergente |
+| Pendência de referência | Reagendada com backoff exponencial, dentro do orçamento de tentativas | Esgotado o orçamento vira **`FAILED`** com `INTERNAL_ERROR` |
+
+A classificação vem do **SQLSTATE**, por classe e não por código: `08` (conexão),
+`57` (operador intervindo) e `53300` (conexões esgotadas) são transitórios; o
+resto não é. Classificar por classe evita a lista de códigos que envelhece.
+
+O `FAILED` da terceira linha é a única forma de a operação chegar a esse estado.
+Ele existe porque, sem ele, uma pendência que falhasse por algo que não sara
+sozinho giraria para sempre: a transação seria desfeita, o contador de tentativas
+não avançaria — ele vive dentro dela — e a linha voltaria em toda rodada. Duas
+cautelas, porque marcar dinheiro como terminal não se desfaz: indisponibilidade
+transitória **não conta**, e uma falha só não basta — o orçamento é o mesmo da
+busca por referência, então um erro mal classificado precisa se repetir, com
+backoff, antes de causar dano.
+
+Não há evento para `FAILED`: o §11 fixa quatro, e nenhum descreve isto. É
+registro para o operador, e o provedor continua podendo consultar a operação.
+
 ## 5. Concorrência e locks
 
 A coordenação é `SELECT ... FROM wallets WHERE id = $1 FOR UPDATE`, dentro da
@@ -543,7 +592,7 @@ pode ajustar e reenviar, versus resultado definitivo.
 | `WALLET_PLAYER_MISMATCH` | A carteira não pertence ao jogador informado | Sim — corrigir jogador ou carteira |
 | `INVALID_AMOUNT_FOR_KIND` | O valor não é o exigido pelo tipo (`LOSS` exige zero; os demais, positivo) | Sim — corrigir o valor |
 | `BALANCE_LIMIT_EXCEEDED` | O crédito levaria o saldo além do maior valor representável (±92.233.720.368.547.758,07) | Não com o mesmo valor — o resultado não cabe, e repetir dá a mesma recusa |
-| `INTERNAL_ERROR` | Falha permanente de infraestrutura, registrada para auditoria | Não — o registro existe para o operador investigar |
+| `INTERNAL_ERROR` | Falha permanente de infraestrutura, registrada para auditoria em `FAILED`. Único caminho: pendência de referência que esgota o orçamento falhando por algo que não é transitório (§4.4) | Não — o registro existe para o operador investigar |
 
 Os dois primeiros são deliberadamente distintos, como o §7 exige. Para quem
 audita, "o jogador não tinha saldo para apostar" e "o dinheiro já saiu da
