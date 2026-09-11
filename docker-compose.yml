@@ -16,8 +16,15 @@ services:
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
     environment:
+      # A senha segue a mesma convenção de todo valor local do repositório:
+      # `local-only-` diz, para quem lê e para quem audita, que ela não vale
+      # fora daqui. `admin` cumpria a função e não dizia nada — num repositório
+      # público, credencial que parece descuido acaba tratada como descuido.
+      #
+      # Este container não guarda estado: só o realm montado somente-leitura,
+      # recriado a cada subida. Não há administrador antigo para conflitar.
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-local-only-admin}
       KC_HTTP_PORT: "8080"
       KC_HEALTH_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
