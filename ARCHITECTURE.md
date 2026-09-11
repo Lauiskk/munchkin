@@ -1054,6 +1054,16 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
   portador de cabeçalhos próprio, porque o ecossistema OpenTelemetry pressupõe
   `http.Header`.
 - **Reversão parcial não é suportada**, conforme o escopo definido.
+- **Três vulnerabilidades conhecidas permanecem, todas no arnês de testes.**
+  `govulncheck` no binário devolve zero; no projeto inteiro devolve três, e as
+  três são alcançadas só por `tests/infra`, através do `testcontainers-go`
+  (`golang.org/x/crypto/ssh` e `github.com/moby/go-archive`). Elas não embarcam
+  em nada que rode em produção. Subir essas duas dependências acima do que o
+  `testcontainers` declara é mexer no que monta os containers dos testes, e o
+  risco disso aparece em execução e não em compilação — não vale trocar um
+  arnês verificado por um não verificado para corrigir o que nunca sai do
+  teste. As que **alcançavam o binário**, pela pilha OpenTelemetry, foram
+  corrigidas.
 - **A entrada por SQS não é autenticada por token.** O `providerId` vem do corpo,
   e a fronteira de confiança é a política de acesso da fila. Detalhado no §9;
   fica listado aqui porque é limitação do desenho, e não detalhe de
