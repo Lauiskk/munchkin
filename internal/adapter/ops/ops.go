@@ -35,17 +35,28 @@ const shutdownTimeout = 5 * time.Second
 // O documento vem do binário; só os arquivos da interface vêm de CDN, e com
 // versão fixada. Quem abre a página tem navegador com internet — o container
 // não precisa de saída para a rede, e continua sem ela.
+// paginaDocs é a interface do contrato, servida na porta de observação.
+//
+// Os dois arquivos do Swagger UI vêm de CDN e carregam `integrity`: a versão
+// fixada diz QUAL arquivo pedir, e o hash diz que foi ELE que chegou. Sem o
+// segundo, quem abre esta página executa o que o CDN devolver — e fixar versão
+// não é integridade. `crossorigin` acompanha porque o navegador só confere o
+// hash de recurso servido com CORS.
 const paginaDocs = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Munchkin — contrato da API</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.29.4/swagger-ui.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.29.4/swagger-ui.css"
+        integrity="sha384-++DMKo1369T5pxDNqojF1F91bYxYiT1N7b1M15a7oCzEodfljztKlApQoH6eQSKI"
+        crossorigin="anonymous">
 </head>
 <body>
   <div id="swagger"></div>
-  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.29.4/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.29.4/swagger-ui-bundle.js"
+          integrity="sha384-eGAqzBSdqmAnsjFjrz0Ua2nJFnpAzDMmRg4mr6jwRwzcjSmL9FMmXAhMwX+mTFfs"
+          crossorigin="anonymous"></script>
   <script>
     window.ui = SwaggerUIBundle({
       url: "/openapi.yaml",
