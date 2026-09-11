@@ -102,3 +102,46 @@ func TestRegistroNuloSatisfazAPortaESeguraNada(t *testing.T) {
 		m.OutboxPendingAge(time.Second)
 	})
 }
+
+// TestAsOitoMetricasAparecemAntesDoPrimeiroUso guarda o §12 ao pé da letra.
+//
+// Contador com rótulo não existe no /metrics até alguém tocar numa combinação.
+// Como retentativa e conflito de concorrência não acontecem numa aplicação
+// saudável, as duas ficavam invisíveis exatamente quando está tudo bem — e uma
+// varredura de um sistema recém-subido mostrava seis das oito que o enunciado
+// manda expor.
+//
+// Para quem opera, "sem dados" e "zero" são afirmações diferentes: alerta sobre
+// série ausente não dispara e não se distingue de alerta quebrado.
+func TestAsOitoMetricasAparecemAntesDoPrimeiroUso(t *testing.T) {
+	r := metrics.New()
+
+	familias, err := r.Gatherer().Gather()
+	require.NoError(t, err)
+
+	presentes := map[string]bool{}
+	for _, f := range familias {
+		presentes[f.GetName()] = true
+	}
+
+	// As que PODEM nunca acontecer num sistema saudável, e por isso precisam
+	// aparecer em zero. Todas têm conjunto de rótulos fechado e pequeno.
+	//
+	// Ficam de fora `wager_transactions_total` (cruza quatro rótulos, centenas
+	// de combinações) e a duração (histograma, um balde por faixa e por
+	// combinação). As duas aparecem na primeira operação processada, que num
+	// serviço em uso acontece sempre — a diferença com retentativa e conflito,
+	// que podem não acontecer nunca, é o que decide quem entra nesta lista.
+	for _, nome := range []string{
+		"munchkin_idempotent_replays_total",
+		"munchkin_worker_retries_total",
+		"munchkin_messages_dead_lettered_total",
+		"munchkin_concurrency_conflicts_total",
+		"munchkin_reconciliation_divergences_total",
+		"munchkin_outbox_pending_age_seconds",
+	} {
+		assert.True(t, presentes[nome],
+			"%s não aparece antes do primeiro uso: quem varrer um sistema "+
+				"saudável não vai encontrá-la", nome)
+	}
+}

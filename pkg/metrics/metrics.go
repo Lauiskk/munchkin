@@ -100,8 +100,49 @@ func New() *Registry {
 		r.transacoes, r.replays, r.duracao, r.retentativas,
 		r.deadLetter, r.conflitos, r.divergencias, r.atrasoOutbox,
 	)
+
+	// Contador com rótulo não existe no /metrics até alguém tocar numa
+	// combinação. O §12 manda EXPOR métrica de retentativa e de conflito de
+	// concorrência, e numa aplicação saudável nenhuma das duas acontece — então
+	// as duas ficavam invisíveis justamente quando está tudo bem.
+	//
+	// Para quem opera, isso é pior que parecer: "sem dados" e "zero" são
+	// afirmações diferentes. Um alerta sobre série ausente não dispara e não se
+	// distingue de um alerta quebrado; sobre uma série em zero, dispara.
+	//
+	// Os valores de rótulo são fechados e conhecidos, então dá para declará-los
+	// aqui. O conflito por versão de carteira é, por desenho, inalcançável —
+	// e é exatamente por isso que ele precisa aparecer em zero: é o sintoma de
+	// que alguma escrita escapou do caminho travado, e sintoma que não se
+	// observa não serve de sintoma.
+	for _, worker := range []string{"outbox.publisher", "reference.resolver"} {
+		r.retentativas.WithLabelValues(worker)
+	}
+	for _, conflito := range []string{"pending_reference", "wallet_version"} {
+		r.conflitos.WithLabelValues(conflito)
+	}
+	for _, motivo := range []string{"invalid_message", "hash_mismatch"} {
+		r.deadLetter.WithLabelValues(motivo)
+	}
+	for _, origem := range []string{"http", "sqs", "worker"} {
+		r.replays.WithLabelValues(origem)
+	}
 	return r
 }
+
+// Duas ficam DE FORA desta pré-declaração, e é decisão e não esquecimento.
+//
+// `wager_transactions_total` cruza tipo, estado, código de falha e origem: são
+// centenas de combinações, e a esmagadora maioria nunca acontece. Declarar todas
+// trocaria um problema por outro pior — invisibilidade por uma explosão de
+// séries que este mesmo pacote tem teste para impedir.
+//
+// `wager_processing_duration_seconds` é histograma: cada combinação de rótulo
+// custa um balde por faixa, e o preço de pré-declarar cresce depressa.
+//
+// As duas aparecem no primeiro uso, e o primeiro uso é a primeira operação que
+// o serviço processa — diferente de retentativa e conflito, que podem não
+// acontecer nunca. É essa diferença que decide quem entra aqui.
 
 // Gatherer expõe o registro para quem serve /metrics.
 func (r *Registry) Gatherer() prometheus.Gatherer { return r.registro }
