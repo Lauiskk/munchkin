@@ -30,6 +30,16 @@ func comObrigatorios(t *testing.T) {
 	t.Setenv("AWS_TRANSACTIONS_DLQ_URL", "http://localstack:4566/000000000000/wager-transactions-dlq.fifo")
 }
 
+// comCredenciaisProprias troca os valores de exemplo por valores quaisquer que
+// não carreguem o prefixo reservado ao ambiente local.
+func comCredenciaisProprias(t *testing.T) {
+	t.Helper()
+	t.Setenv("DB_PASSWORD", "senha-de-verdade-deste-ambiente")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIAEXEMPLONAOLOCAL")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "chave-de-verdade-deste-ambiente")
+	t.Setenv("DB_SSLMODE", "require")
+}
+
 func TestPadroesQuandoOAmbienteEstaVazio(t *testing.T) {
 	comObrigatorios(t)
 
@@ -102,6 +112,10 @@ func TestDescobertaPodeApontarParaEnderecoInterno(t *testing.T) {
 func TestLeituraDoAmbiente(t *testing.T) {
 	comObrigatorios(t)
 	t.Setenv("APP_ENV", config.EnvProduction)
+	// Produção recusa os valores de exemplo, e este caso é sobre leitura de
+	// variável, não sobre credencial: sobrescreve com valores que não são os do
+	// repositório para chegar ao que ele de fato mede.
+	comCredenciaisProprias(t)
 	t.Setenv("HTTP_PORT", "9999")
 	t.Setenv("HTTP_REQUEST_TIMEOUT", "2s")
 	t.Setenv("LOG_LEVEL", "debug")
@@ -182,4 +196,64 @@ func TestPrazoDaRequisicaoPrecisaCaberNaJanelaDeEscrita(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP_REQUEST_TIMEOUT")
 	assert.Contains(t, err.Error(), "HTTP_WRITE_TIMEOUT")
+}
+
+// TestProducaoRecusaCredencialDeExemplo guarda a conferência que o §4 do
+// enunciado pede na inicialização.
+//
+// O compose dá default a toda credencial, então `required` — que confere
+// presença — nunca dispara para elas: o default sempre está presente. Sem esta
+// regra, subir em produção com a senha que está no repositório aconteceria em
+// silêncio, e `IsProduction` era função morta prometendo um endurecimento que
+// ninguém aplicava.
+func TestProducaoRecusaCredencialDeExemplo(t *testing.T) {
+	// Fora de produção os mesmos valores passam: é o ambiente para o qual eles
+	// existem, e recusá-los ali quebraria o `docker compose up` do enunciado.
+	t.Run("local aceita o que o compose entrega", func(t *testing.T) {
+		comObrigatorios(t)
+		t.Setenv("APP_ENV", config.EnvLocal)
+
+		_, err := config.Load()
+		require.NoError(t, err)
+	})
+
+	t.Run("produção recusa, e aponta cada uma", func(t *testing.T) {
+		comObrigatorios(t)
+		t.Setenv("APP_ENV", config.EnvProduction)
+
+		_, err := config.Load()
+
+		require.Error(t, err)
+		for _, variavel := range []string{
+			"DB_PASSWORD", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+		} {
+			assert.Contains(t, err.Error(), variavel,
+				"o relatório precisa nomear cada credencial que ficou por sobrescrever")
+		}
+		assert.NotContains(t, err.Error(), "local-only-",
+			"o valor não pode aparecer na mensagem, só o nome da variável")
+	})
+
+	t.Run("produção recusa conexão em claro com o banco", func(t *testing.T) {
+		comObrigatorios(t)
+		comCredenciaisProprias(t)
+		t.Setenv("APP_ENV", config.EnvProduction)
+		t.Setenv("DB_SSLMODE", "disable")
+
+		_, err := config.Load()
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "DB_SSLMODE")
+	})
+
+	t.Run("produção com tudo sobrescrito sobe", func(t *testing.T) {
+		comObrigatorios(t)
+		comCredenciaisProprias(t)
+		t.Setenv("APP_ENV", config.EnvProduction)
+
+		cfg, err := config.Load()
+
+		require.NoError(t, err)
+		assert.True(t, cfg.App.IsProduction())
+	})
 }

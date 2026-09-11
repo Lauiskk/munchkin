@@ -54,6 +54,12 @@ workers — declara o que provê e o que consome, e o grafo é resolvido no star
 - **`OnStart`** valida configuração e dependências antes de aceitar tráfego, e
   falha rápido: chave do IdP indisponível, migration pendente ou banco
   inalcançável impedem a subida em vez de virarem erro no primeiro request.
+  A validação confere **valor**, e não só presença: em `APP_ENV=production` ela
+  recusa credencial que ainda carregue o prefixo `local-only-` e recusa
+  `DB_SSLMODE=disable`. O compose dá default a toda credencial, então exigir
+  apenas presença nunca alcançaria esse caso — o default sempre está presente, e
+  subir com a senha que está no repositório aconteceria em silêncio. Fora de
+  produção nada muda: são os valores para os quais o ambiente local existe.
 - **`OnStop`** para de aceitar entrada, encerra o trabalho em andamento — o HTTP
   drenando as requisições em curso, o consumidor SQS devolvendo à fila o que não
   vai tratar (§12) — e só então fecha as dependências. Fx encerra na ordem inversa da

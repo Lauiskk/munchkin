@@ -41,7 +41,11 @@ type App struct {
 	Env string
 }
 
-// IsProduction informa se estamos em produção, o que endurece alguns padrões.
+// IsProduction informa se estamos em produção.
+//
+// Em produção, `Load` recusa credencial que ainda tenha o valor de exemplo do
+// repositório e recusa `DB_SSLMODE=disable` — ver o fim de `Load`. Fora dela
+// nada muda: são os valores para os quais o ambiente local existe.
 func (a App) IsProduction() bool { return a.Env == EnvProduction }
 
 // Ambientes reconhecidos.
@@ -50,6 +54,14 @@ const (
 	EnvTest       = "test"
 	EnvProduction = "production"
 )
+
+// prefixoDeExemplo marca todo valor de credencial que existe só para o ambiente
+// local — `local-only-app`, `local-only-secret-key` e companhia.
+//
+// A convenção está documentada no ARCHITECTURE §10 e é deliberadamente legível
+// por máquina: é o que permite a conferência de produção abaixo recusar, por
+// critério e não por lista, uma credencial que nunca deveria sair do compose.
+const prefixoDeExemplo = "local-only-"
 
 // HTTP reúne os parâmetros do servidor.
 type HTTP struct {
@@ -302,6 +314,36 @@ func Load() (Config, error) {
 	if cfg.DB.MaxIdleConns > cfg.DB.MaxOpenConns {
 		v.fail("DB_MAX_IDLE_CONNS (%d) não pode exceder DB_MAX_OPEN_CONNS (%d)",
 			cfg.DB.MaxIdleConns, cfg.DB.MaxOpenConns)
+	}
+
+	// Em produção, credencial de exemplo é recusada.
+	//
+	// O compose dá default a TODA credencial (`DB_PASSWORD:-local-only-app` e
+	// companhia), e `required` não alcança isso: ele confere PRESENÇA, e o
+	// default sempre está presente. Sem esta conferência, subir em produção com
+	// a senha que está no repositório acontece em silêncio — e o §4 do enunciado
+	// pede validação de configuração na inicialização justamente para que não
+	// aconteça.
+	//
+	// Fora de produção nada muda: é o ambiente para o qual esses valores
+	// existem, e recusá-los ali quebraria o `docker compose up` do enunciado.
+	if cfg.App.IsProduction() {
+		for _, credencial := range []struct{ nome, valor string }{
+			{"DB_PASSWORD", cfg.DB.Password.Reveal()},
+			{"AWS_ACCESS_KEY_ID", cfg.AWS.AccessKeyID.Reveal()},
+			{"AWS_SECRET_ACCESS_KEY", cfg.AWS.SecretAccessKey.Reveal()},
+		} {
+			if strings.HasPrefix(credencial.valor, prefixoDeExemplo) {
+				v.fail("%s ainda tem o valor de exemplo do repositório; em %s ele precisa ser sobrescrito",
+					credencial.nome, EnvProduction)
+			}
+		}
+		// O valor não vaza na mensagem, mas o modo sim: dizer "disable" é o que
+		// torna o erro acionável, e ele não é segredo.
+		if cfg.DB.SSLMode == "disable" {
+			v.fail("DB_SSLMODE=disable não é aceito em %s: a conexão com o banco trafegaria em claro",
+				EnvProduction)
+		}
 	}
 
 	if err := v.err(); err != nil {
