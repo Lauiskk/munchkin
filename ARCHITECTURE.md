@@ -1054,22 +1054,19 @@ Onde o enunciado admite mais de uma leitura, a leitura escolhida e o motivo:
   portador de cabeçalhos próprio, porque o ecossistema OpenTelemetry pressupõe
   `http.Header`.
 - **Reversão parcial não é suportada**, conforme o escopo definido.
-- **Três vulnerabilidades conhecidas permanecem, todas no arnês de testes.**
-  `govulncheck` no binário devolve zero; no projeto inteiro devolve três, e as
-  três são alcançadas só por `tests/infra`, através do `testcontainers-go`
-  (`golang.org/x/crypto/ssh` e `github.com/moby/go-archive`). Elas não embarcam
-  em nada que rode em produção. Subir essas duas dependências acima do que o
-  `testcontainers` declara é mexer no que monta os containers dos testes, e o
-  risco disso aparece em execução e não em compilação — não vale trocar um
-  arnês verificado por um não verificado para corrigir o que nunca sai do
-  teste. As que **alcançavam o binário**, pela pilha OpenTelemetry, foram
-  corrigidas.
-- **A entrada por SQS não é autenticada por token.** O `providerId` vem do corpo,
-  e a fronteira de confiança é a política de acesso da fila. Detalhado no §9;
-  fica listado aqui porque é limitação do desenho, e não detalhe de
-  implementação. A política é provisionada com as filas, mas o **LocalStack não
-  a impõe**: localmente ela vale como declaração, e só um broker real a faz
-  cumprir.
+- **As dependências são varridas por `govulncheck`, e o resultado é zero.** A
+  varredura apontou cinco vulnerabilidades conhecidas: duas alcançavam o binário
+  pela pilha OpenTelemetry, e três chegavam ao arnês de testes pelo
+  `testcontainers-go`. Todas corrigidas por atualização de versão.
+
+  As três do arnês exigiram forçar dependências **indiretas** — subir o
+  `testcontainers` de v0.43 para v0.44 não resolveria, porque ele declara
+  exatamente as mesmas versões vulneráveis. Forçar indireta acima do que a
+  biblioteca declara é risco que aparece em execução e não em compilação, então
+  a mudança só entrou depois de as três suítes com container rodarem verdes
+  sobre ela — e com uma execução verde ANTES da atualização, para a comparação
+  valer.
+
 - **O dono do schema no ambiente local é superusuário**, porque é o usuário de
   bootstrap da imagem do PostgreSQL. Em produção o dono seria um papel comum, e
   o superusuário não seria usado por nenhum componente da aplicação. A
