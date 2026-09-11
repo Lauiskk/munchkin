@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Lauiskk/munchkin/internal/domain/money"
 	domainwallet "github.com/Lauiskk/munchkin/internal/domain/wallet"
 )
 
@@ -398,4 +399,58 @@ func TestAberturaInternaNaoEntraPorHTTP(t *testing.T) {
 	a.conferir(t, "/wagering/transactions", http.MethodPost, resp.StatusCode, bruto)
 
 	assert.Equal(t, "100.00 BRL", a.saldo(t, w), "nenhum crédito escapou")
+}
+
+// TestReplayDeRecusaNaoInventaSaldo guarda o que o §9 quer dizer com "resultado
+// persistido".
+//
+// A recusa original devolve o saldo observado no momento em que ela aconteceu,
+// lido sob o lock da carteira. Esse saldo NÃO é persistido: só operação
+// concluída guarda resultado financeiro, e a constraint do banco garante isso.
+//
+// No replay, o código antes fabricava um zero para preencher o campo — e zero
+// num campo de saldo não é "não há", é "a carteira está vazia". A mesma chave,
+// com o mesmo desfecho, devolvia 100,00 na primeira vez e 0,00 na segunda.
+//
+// Agora o campo simplesmente não vai. Encontrado testando a plataforma de ponta
+// a ponta contra o enunciado.
+func TestReplayDeRecusaNaoInventaSaldo(t *testing.T) {
+	a := novoAmbienteHTTP(t)
+	w, jogador := a.carteiraCom(t, "100.00")
+	chave := map[string]string{"Idempotency-Key": "provider-a:sem-saldo"}
+	corpo := operacaoJSON("sem-saldo", w.String(), jogador.String(), "BET", "5000.00")
+
+	type resposta struct {
+		Status           string          `json:"status"`
+		FailureCode      string          `json:"failureCode"`
+		IdempotentReplay bool            `json:"idempotentReplay"`
+		Balance          *money.Money    `json:"balance"`
+		Cru              json.RawMessage `json:"-"`
+	}
+	enviar := func(t *testing.T) (resposta, []byte) {
+		t.Helper()
+		resp, bruto := a.chamar(t, http.MethodPost, "/wagering/transactions", corpo, provedor(), chave)
+		require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, string(bruto))
+		var r resposta
+		require.NoError(t, json.Unmarshal(bruto, &r))
+		return r, bruto
+	}
+
+	original, _ := enviar(t)
+	require.Equal(t, "INSUFFICIENT_FUNDS", original.FailureCode)
+	require.False(t, original.IdempotentReplay)
+	require.NotNil(t, original.Balance, "a recusa informa o saldo que ela observou")
+	assert.Equal(t, "100.00", original.Balance.Amount())
+
+	replay, bruto := enviar(t)
+	assert.True(t, replay.IdempotentReplay)
+	assert.Equal(t, original.Status, replay.Status, "o desfecho é o mesmo")
+	assert.Equal(t, original.FailureCode, replay.FailureCode)
+	assert.Nil(t, replay.Balance,
+		"não há saldo persistido numa recusa: o campo tem de sumir, não virar zero")
+	assert.NotContains(t, string(bruto), `"balance"`,
+		"zero num campo de saldo afirma que a carteira está vazia, e isso é falso")
+
+	// E o contrato continua descrevendo o que saiu.
+	a.conferir(t, "/wagering/transactions", http.MethodPost, http.StatusUnprocessableEntity, bruto)
 }

@@ -514,17 +514,22 @@ func (p *Processor) decidirReplay(existente *domain.Transaction, in Input, hash 
 	// Replay legítimo: devolve o resultado persistido, sem reaplicar nada. O
 	// saldo é o OBSERVADO NO PROCESSAMENTO ORIGINAL, mesmo que a carteira já
 	// tenha se movimentado depois — é o que o contrato promete.
-	saldo, temSaldo := existente.ResultBalance()
-	if !temSaldo {
-		saldo = in.Money.ZeroOfSame()
-	}
-	return Output{
+	//
+	// Quando não há saldo persistido, o campo simplesmente NÃO VAI. Só operação
+	// concluída guarda saldo; uma recusa não guarda, porque não houve resultado
+	// financeiro. Antes disto o replay devolvia um zero fabricado, e zero num
+	// campo de saldo não é "não há" — é "a carteira está vazia", que é outra
+	// afirmação e era falsa. O handler omite o que não for válido.
+	out := Output{
 		TransactionID:    existente.ID(),
 		Status:           existente.Status(),
-		Balance:          saldo,
 		FailureCode:      existente.FailureCode(),
 		IdempotentReplay: true,
-	}, nil
+	}
+	if saldo, temSaldo := existente.ResultBalance(); temSaldo {
+		out.Balance = saldo
+	}
+	return out, nil
 }
 
 // recusaSemRegistro monta o desfecho de uma recusa que não é persistida.
